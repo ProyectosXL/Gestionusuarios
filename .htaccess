@@ -1,0 +1,47 @@
+# ==============================================================================
+# SEGURIDAD Y PROTECCIÓN CRÍTICA - GESTIONUSUARIOS
+# ==============================================================================
+
+# 1. Deshabilitar listado de directorios
+Options -Indexes -MultiViews
+
+# 2. Bloquear totalmente el acceso a archivos de configuración, entorno y dotfiles
+<Files ".env">
+    Require all denied
+</Files>
+
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+
+# 3. Bloquear acceso a archivos sensibles y de código interno
+<FilesMatch "\.(bak|config|sql|log|ini|git|env|sh|bat|md|json|lock)$">
+    Require all denied
+</FilesMatch>
+
+# 4. Proteger carpetas internas críticas (src, config, views)
+# Impedir ejecución directa o navegación de archivos internos desde la URL
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^(config|src|views)/ - [F,L,NC]
+</IfModule>
+
+# 5. Cabeceras HTTP de Seguridad Avanzada (Headers Hardening)
+<IfModule mod_headers.c>
+    # Prevenir MIME-sniffing
+    Header set X-Content-Type-Options "nosniff"
+    
+    # Prevenir Clickjacking (solo permitir dentro del mismo dominio o intranet)
+    Header set X-Frame-Options "SAMEORIGIN"
+    
+    # Activar protección XSS del navegador
+    Header set X-XSS-Protection "1; mode=block"
+    
+    # Forzar política de referer estricta
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+    
+    # Deshabilitar cacheo en el navegador para datos ultra sensibles
+    Header set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
+    Header set Pragma "no-cache"
+    Header set Expires "0"
+</IfModule>

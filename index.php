@@ -1,0 +1,3928 @@
+<?php
+require_once __DIR__ . '/config/Database.php';
+require_once __DIR__ . '/src/Models/Usuario.php';
+require_once __DIR__ . '/src/Models/Estructura.php';
+require_once __DIR__ . '/src/Middleware/AuthCentral.php';
+
+use GestionUsuarios\Models\Usuario;
+use GestionUsuarios\Models\Estructura;
+use GestionUsuarios\Middleware\AuthCentral;
+
+AuthCentral::init();
+AuthCentral::requireAdmin();
+
+$usuarioModel = new Usuario();
+$estructuraModel = new Estructura();
+
+// Sembrar iniciales
+$estructuraModel->sembrarSectoresIniciales();
+
+$tab = $_GET['tab'] ?? 'usuarios';
+$mensaje = '';
+$tipoMensaje = 'success';
+
+// Función auxiliar para determinar URL/Destino del login según el usuario
+function calcularDestinoLogin($u) {
+    $username = strtoupper(trim($u['username'] ?? ''));
+    $tipo = strtoupper(trim($u['tipo'] ?? ''));
+    $cat = strtoupper(trim($u['categoria_usuario'] ?? 'PERSONAL'));
+    $codVend = trim($u['cod_vendedor'] ?? '');
+    $nroSuc = $u['nro_sucursal'] ?? null;
+    $rol = strtoupper(trim($u['rol_nombre'] ?? ''));
+
+    if ($username === 'FRANCOPERTUS' || strpos($rol, 'ADMIN') !== false || strpos($rol, 'PROYECTOS') !== false) {
+        return [
+            'nombre' => 'Centralizador Hub (NODO / Identity)',
+            'url' => 'https://app.xl.com.ar/sistemas/hub/index.php',
+            'badge' => 'bg-indigo-50 text-indigo-700 border-indigo-200'
+        ];
+    }
+    if ($tipo === 'GRUPO' || $cat === 'GRUPO' || strpos($rol, 'GRUPO') !== false) {
+        return [
+            'nombre' => 'Portal Franquicias Grupo',
+            'url' => 'https://app.xl.com.ar/ppp/franquicias/grupo/index.php',
+            'badge' => 'bg-amber-50 text-amber-800 border-amber-200'
+        ];
+    }
+    if (strpos($rol, 'CONTEO') !== false || strpos($username, 'CONTEO') !== false || in_array((string)($u['permisos_legacy'] ?? ''), ['5', '6'])) {
+        return [
+            'nombre' => 'Sistema de Conteos / Auditoría',
+            'url' => 'https://app.xl.com.ar/sistemas/conteos/index.php',
+            'badge' => 'bg-rose-50 text-rose-700 border-rose-200'
+        ];
+    }
+    if ($cat === 'MAYORISTA' || $tipo === 'MAYORISTA' || (!empty($codVend) && $codVend !== '0') || strpos($rol, 'MAYORISTA') !== false) {
+        return [
+            'nombre' => 'Portal Clientes Mayoristas B2B',
+            'url' => 'https://app.xl.com.ar/sistemas/mayoristas/index.php',
+            'badge' => 'bg-teal-50 text-teal-800 border-teal-200'
+        ];
+    }
+    if ($cat === 'PERSONAL' && ($tipo === 'SUPERVISION' || strpos($rol, 'SUPERVISOR') !== false)) {
+        return [
+            'nombre' => 'Centralizador Hub (NODO / Comerciales)',
+            'url' => 'https://app.xl.com.ar/sistemas/hub/index.php',
+            'badge' => 'bg-indigo-50 text-indigo-700 border-indigo-200'
+        ];
+    }
+    if ($tipo === 'SUPERVISION' || strpos($rol, 'SUPERVISOR') !== false || in_array($username, ['SUPERVISORAS', 'COMERCIAL', 'COMERCIAL2'])) {
+        return [
+            'nombre' => 'Estadísticas Comerciales',
+            'url' => 'https://app.xl.com.ar/comercial/estadisticas/index.php',
+            'badge' => 'bg-purple-50 text-purple-700 border-purple-200'
+        ];
+    }
+    if ($cat === 'PERSONAL' && ($tipo === 'GERENCIA' || strpos($rol, 'GERENCIA') !== false || strpos($rol, 'DIRECCI') !== false)) {
+        return [
+            'nombre' => 'Centralizador Hub (NODO / Dirección)',
+            'url' => 'https://app.xl.com.ar/sistemas/hub/index.php',
+            'badge' => 'bg-indigo-50 text-indigo-700 border-indigo-200'
+        ];
+    }
+    if ($tipo === 'GERENCIA' || strpos($rol, 'GERENCIA') !== false || strpos($rol, 'DIRECCI') !== false) {
+        return [
+            'nombre' => 'Portal Gerencia / PPP',
+            'url' => 'https://app.xl.com.ar/ppp/index.php',
+            'badge' => 'bg-sky-50 text-sky-700 border-sky-200'
+        ];
+    }
+    if ($username === 'LOGISTICA_CORP' || strpos($rol, 'LOGISTICA') !== false) {
+        return [
+            'nombre' => 'Control Logística Operativa',
+            'url' => 'https://app.xl.com.ar/sistemas/control/control_logistica.php',
+            'badge' => 'bg-cyan-50 text-cyan-800 border-cyan-200'
+        ];
+    }
+    if ($cat === 'LOCAL') {
+        return [
+            'nombre' => 'Terminal Local / Lakers',
+            'url' => 'https://app.xl.com.ar/sistemas/eliminaPedido.php',
+            'badge' => 'bg-blue-50 text-blue-700 border-blue-200'
+        ];
+    }
+    return [
+        'nombre' => 'Hub Central / NODO',
+        'url' => 'https://app.xl.com.ar/sistemas/hub/index.php',
+        'badge' => 'bg-slate-50 text-slate-700 border-slate-200'
+    ];
+}
+
+// ==================== EXPORTACIÓN SEGURA DE CREDENCIALES EN EXCEL / CSV ====================
+if (isset($_GET['action']) && $_GET['action'] === 'exportar_excel_usuarios') {
+    $busqueda = trim($_GET['q'] ?? '');
+    $tipo = trim($_GET['tipo'] ?? '');
+    $sectorFiltro = trim($_GET['sec'] ?? '');
+    $categoriaFiltro = trim($_GET['cat'] ?? '');
+    $rolFiltro = trim($_GET['rol'] ?? '');
+
+    $usuariosExport = $usuarioModel->listar($busqueda, $tipo, $sectorFiltro, $categoriaFiltro, $rolFiltro, 10000, 0);
+
+    $filename = "Credenciales_Usuarios_XL_" . date('Y-m-d_His') . ".csv";
+    header('Content-Type: text/csv; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+
+    // UTF-8 BOM para apertura perfecta y nativa en Excel en español
+    echo "\xEF\xBB\xBF";
+
+    $output = fopen('php://output', 'w');
+    fputcsv($output, [
+        'ID',
+        'Usuario (Login)',
+        'Contraseña (SQL)',
+        'Nombre Completo / Razón Social',
+        'Email',
+        'Categoría',
+        'Sector',
+        'Subsector',
+        'Rol Operativo',
+        'Tipo / Alcance',
+        'Cód. Cliente',
+        'Nro Sucursal',
+        'Sucursales Asignadas',
+        'Legajo',
+        'Cód. Vendedor (Vend)',
+        'Portal de Acceso / URL de Ingreso',
+        'Estado Login'
+    ], ';');
+
+    foreach ($usuariosExport as $u) {
+        $destino = calcularDestinoLogin($u);
+        $passVal = $u['password'] ?: $u['password_plain'] ?: '';
+        fputcsv($output, [
+            $u['id'],
+            $u['username'],
+            $passVal,
+            $u['nombre_completo'] ?: '',
+            $u['email'] ?: '',
+            $u['categoria_usuario'] ?: 'PERSONAL',
+            $u['sector_nombre'] ?: '',
+            $u['subsector_nombre'] ?: '',
+            $u['rol_nombre'] ?: '',
+            $u['tipo'] ?: '',
+            $u['cod_client'] ?: '',
+            $u['nro_sucursal'] ?: '',
+            $u['nro_sucurs'] ?: '',
+            $u['legajo'] ?: '',
+            $u['cod_vendedor'] ?: '',
+            $destino['nombre'] . ' (' . $destino['url'] . ')',
+            ($u['activo'] == 1) ? 'HABILITADO' : 'INACTIVO'
+        ], ';');
+    }
+
+    fclose($output);
+    exit;
+}
+
+// ==================== PROCESAMIENTO DE PETICIONES AJAX ====================
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax']) && $_POST['ajax'] == '1') {
+    header('Content-Type: application/json; charset=utf-8');
+    $action = $_POST['action'] ?? '';
+    
+    // 1. Actualizar Relevamiento Usuario Individual
+    if ($action === 'actualizar_relevamiento') {
+        $userId = (int)($_POST['user_id'] ?? 0);
+        $estado = trim($_POST['estado'] ?? 'PENDIENTE');
+        $obs = trim($_POST['obs'] ?? '');
+        $usuarioQuien = $_SESSION['username'] ?? 'FRANCO';
+        try {
+            $usuarioModel->actualizarRelevamiento($userId, $estado, $obs, $usuarioQuien);
+            $stats = $usuarioModel->obtenerEstadisticasRelevamiento();
+            echo json_encode(['ok' => true, 'mensaje' => 'Relevamiento actualizado', 'stats' => $stats]);
+        } catch (\Exception $e) {
+            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+        }
+        exit;
+    } 
+    // 2. Marcar Lote por IDs
+    elseif ($action === 'marcar_lote_relevamiento') {
+        $ids = $_POST['user_ids'] ?? [];
+        $estado = trim($_POST['estado'] ?? 'OK');
+        $obs = trim($_POST['obs'] ?? '');
+        $usuarioQuien = $_SESSION['username'] ?? 'FRANCO';
+        try {
+            $af = $usuarioModel->marcarLoteRelevamiento($ids, $estado, $obs, $usuarioQuien);
+            $stats = $usuarioModel->obtenerEstadisticasRelevamiento();
+            echo json_encode(['ok' => true, 'afectados' => $af, 'stats' => $stats]);
+        } catch (\Exception $e) {
+            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+        }
+        exit;
+    }
+    // 3. Marcar TODO el Filtro Actual (Todas las páginas)
+    elseif ($action === 'marcar_filtro_relevamiento') {
+        $busqueda = trim($_POST['q_rel'] ?? '');
+        $estadoActual = trim($_POST['estado_rel'] ?? '');
+        $categoria = trim($_POST['cat_rel'] ?? '');
+        $nuevoEstado = trim($_POST['nuevo_estado'] ?? 'OK');
+        $obs = trim($_POST['obs'] ?? '');
+        $usuarioQuien = $_SESSION['username'] ?? 'FRANCO';
+        try {
+            $af = $usuarioModel->marcarFiltroRelevamiento($busqueda, $estadoActual, $categoria, $nuevoEstado, $obs, $usuarioQuien);
+            $stats = $usuarioModel->obtenerEstadisticasRelevamiento();
+            echo json_encode(['ok' => true, 'afectados' => $af, 'stats' => $stats]);
+        } catch (\Exception $e) {
+            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+        }
+        exit;
+    }
+    // 4. Toggle Permiso Hub Rol (Switch Individual)
+    elseif ($action === 'toggle_permiso_hub_rol') {
+        $rolId = (int)($_POST['rol_id'] ?? 0);
+        $permisoId = (int)($_POST['permiso_id'] ?? 0);
+        $activo = (int)($_POST['activo'] ?? 0);
+        try {
+            $ok = $estructuraModel->togglePermisoHubRol($rolId, $permisoId, $activo);
+            echo json_encode(['ok' => $ok ? true : false, 'mensaje' => $activo ? 'Acceso habilitado' : 'Acceso revocado']);
+        } catch (\Exception $e) {
+            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+        }
+        exit;
+    }
+    // 5. Guardar Todos los Permisos Hub de un Rol
+    elseif ($action === 'guardar_permisos_hub_rol') {
+        $rolId = (int)($_POST['rol_id'] ?? 0);
+        $permisoIds = $_POST['permiso_ids'] ?? [];
+        if (!is_array($permisoIds)) $permisoIds = [];
+        try {
+            $ok = $estructuraModel->guardarPermisosHubRol($rolId, $permisoIds);
+            echo json_encode(['ok' => $ok ? true : false, 'mensaje' => 'Configuración de accesos guardada exitosamente']);
+        } catch (\Exception $e) {
+            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+        }
+        exit;
+    }
+    // 6. Copiar Permisos Hub entre Roles
+    elseif ($action === 'copiar_permisos_hub_rol') {
+        $rolOrigenId = (int)($_POST['rol_origen_id'] ?? 0);
+        $rolDestinoIds = $_POST['rol_destino_ids'] ?? [];
+        if (!is_array($rolDestinoIds)) {
+            if (!empty($_POST['rol_destino_id'])) {
+                $rolDestinoIds = [(int)$_POST['rol_destino_id']];
+            } else {
+                $rolDestinoIds = [];
+            }
+        }
+        try {
+            $afectados = 0;
+            foreach ($rolDestinoIds as $rDestId) {
+                if ($rDestId > 0 && $rDestId != $rolOrigenId) {
+                    $estructuraModel->copiarPermisosHubRol($rolOrigenId, $rDestId);
+                    $afectados++;
+                }
+            }
+            echo json_encode(['ok' => true, 'mensaje' => "Accesos copiados a $afectados roles con éxito"]);
+        } catch (\Exception $e) {
+            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+        }
+        exit;
+    }
+    // 7. Aplicar Permisos Hub a todo un Subsector
+    elseif ($action === 'aplicar_permisos_hub_subsector') {
+        $subsectorId = (int)($_POST['subsector_id'] ?? 0);
+        $permisoIds = $_POST['permiso_ids'] ?? [];
+        if (!is_array($permisoIds)) $permisoIds = [];
+        try {
+            $ok = $estructuraModel->aplicarPermisosHubSubsector($subsectorId, $permisoIds);
+            echo json_encode(['ok' => $ok ? true : false, 'mensaje' => 'Accesos aplicados a todos los roles del subsector']);
+        } catch (\Exception $e) {
+            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+        }
+        exit;
+    }
+    // 8. Obtener Submódulos / Menús de un Centralizador para un Rol
+    elseif ($action === 'obtener_submodulos_centralizador') {
+        $moduloId = (int)($_POST['modulo_id'] ?? 0);
+        $rolId = (int)($_POST['rol_id'] ?? 0);
+        try {
+            $data = $estructuraModel->obtenerSubmodulosCentralizador($moduloId, $rolId);
+            if ($data) {
+                echo json_encode(['ok' => true, 'data' => $data]);
+            } else {
+                echo json_encode(['ok' => false, 'error' => 'No se encontró el módulo solicitado']);
+            }
+        } catch (\Exception $e) {
+            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+        }
+        exit;
+    }
+    // 9. Guardar Submódulos / Menús de un Centralizador para un Rol
+    elseif ($action === 'guardar_submodulos_centralizador') {
+        $moduloId = (int)($_POST['modulo_id'] ?? 0);
+        $rolId = (int)($_POST['rol_id'] ?? 0);
+        $permisoIds = $_POST['permiso_ids'] ?? [];
+        if (!is_array($permisoIds)) $permisoIds = [];
+        try {
+            $ok = $estructuraModel->guardarSubmodulosRol($rolId, $moduloId, $permisoIds);
+            echo json_encode(['ok' => $ok ? true : false, 'mensaje' => 'Accesos internos guardados correctamente']);
+        } catch (\Exception $e) {
+            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+        }
+        exit;
+    }
+    
+    echo json_encode(['ok' => false, 'error' => 'Acción AJAX desconocida']);
+    exit;
+}
+
+// ==================== PROCESAMIENTO DE FORMULARIOS (POST-REDIRECT-GET) ====================
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = $_POST['action'] ?? '';
+    $redirectUrl = "?tab=" . urlencode($tab);
+
+    // 1. Cambiar Password
+    if ($action === 'cambiar_pass') {
+        $userId = (int)($_POST['user_id'] ?? 0);
+        $nuevaPass = trim($_POST['nueva_pass'] ?? '');
+        if ($userId > 0 && $nuevaPass !== '') {
+            $usuarioModel->actualizarPassword($userId, $nuevaPass);
+            $_SESSION['flash_msg'] = [
+                'texto' => "Contraseña actualizada con éxito en SQL para el usuario #$userId.",
+                'tipo' => 'success'
+            ];
+        }
+    }
+    // 1.1 Eliminar Usuario
+    elseif ($action === 'eliminar_usuario') {
+        $userId = (int)($_POST['user_id'] ?? 0);
+        $usernameBorrar = trim($_POST['username'] ?? '');
+        if ($userId > 0) {
+            try {
+                $usuarioModel->eliminarUsuario($userId);
+                $_SESSION['flash_msg'] = [
+                    'texto' => "Usuario @{$usernameBorrar} (#{$userId}) eliminado correctamente de SQL.",
+                    'tipo' => 'success'
+                ];
+            } catch (\Exception $e) {
+                $_SESSION['flash_msg'] = [
+                    'texto' => $e->getMessage(),
+                    'tipo' => 'error'
+                ];
+            }
+        }
+    }
+    // 2. Crear / Editar Usuario
+    elseif ($action === 'guardar_usuario') {
+        $userId = (int)($_POST['user_id'] ?? 0);
+        $datos = [
+            'username' => trim($_POST['username'] ?? ''),
+            'nombre_completo' => trim($_POST['nombre_completo'] ?? ''),
+            'email' => trim($_POST['email'] ?? ''),
+            'password' => trim($_POST['password'] ?? ''),
+            'categoria_usuario' => trim($_POST['categoria_usuario'] ?? 'PERSONAL'),
+            'tipo' => trim($_POST['tipo'] ?? ''),
+            'sector_id' => $_POST['sector_id'] ?? null,
+            'subsector_id' => $_POST['subsector_id'] ?? null,
+            'rol_id' => $_POST['rol_id'] ?? null,
+            'nro_sucurs' => trim($_POST['nro_sucurs'] ?? ''),
+            'legajo' => !empty($_POST['legajo']) ? (int)$_POST['legajo'] : null,
+            'cod_client' => trim($_POST['cod_client'] ?? ''),
+            'nro_sucursal' => $_POST['nro_sucursal'] ?? null,
+            'cod_vendedor' => trim($_POST['cod_vendedor'] ?? ''),
+            'activo' => isset($_POST['activo']) ? 1 : 0
+        ];
+
+        if (!empty($datos['username'])) {
+            try {
+                if ($userId > 0) {
+                    $usuarioModel->actualizarUsuario($userId, $datos);
+                    $_SESSION['flash_msg'] = [
+                        'texto' => "Usuario @{$datos['username']} actualizado correctamente.",
+                        'tipo' => 'success'
+                    ];
+                } else {
+                    $usuarioModel->crearUsuario($datos);
+                    $_SESSION['flash_msg'] = [
+                        'texto' => "Nuevo usuario @{$datos['username']} creado con éxito.",
+                        'tipo' => 'success'
+                    ];
+                }
+            } catch (\Exception $e) {
+                $_SESSION['flash_msg'] = [
+                    'texto' => $e->getMessage(),
+                    'tipo' => 'error'
+                ];
+            }
+        } else {
+            $_SESSION['flash_msg'] = [
+                'texto' => "El nombre de usuario es obligatorio.",
+                'tipo' => 'error'
+            ];
+        }
+    }
+    // 3. Crear / Editar Sector
+    elseif ($action === 'guardar_sector') {
+        $sectorId = (int)($_POST['sector_id'] ?? 0);
+        $codigo = trim($_POST['codigo'] ?? '');
+        $nombre = trim($_POST['nombre'] ?? '');
+        $desc = trim($_POST['descripcion'] ?? '');
+        if (!empty($codigo) && !empty($nombre)) {
+            if ($sectorId > 0) {
+                $estructuraModel->actualizarSector($sectorId, $codigo, $nombre, $desc);
+                $_SESSION['flash_msg'] = ['texto' => "Sector '$nombre' actualizado exitosamente.", 'tipo' => 'success'];
+            } else {
+                $estructuraModel->crearSector($codigo, $nombre, $desc);
+                $_SESSION['flash_msg'] = ['texto' => "Sector '$nombre' creado exitosamente.", 'tipo' => 'success'];
+            }
+        }
+        $redirectUrl = "?tab=sectores";
+    }
+    // 4. Crear / Editar Subsector
+    elseif ($action === 'guardar_subsector') {
+        $subsectorId = (int)($_POST['subsector_id'] ?? 0);
+        $sectorId = (int)($_POST['sector_id'] ?? 0);
+        $codigo = trim($_POST['codigo'] ?? '');
+        $nombre = trim($_POST['nombre'] ?? '');
+        $desc = trim($_POST['descripcion'] ?? '');
+        if ($sectorId > 0 && !empty($codigo) && !empty($nombre)) {
+            if ($subsectorId > 0) {
+                $estructuraModel->actualizarSubsector($subsectorId, $sectorId, $codigo, $nombre, $desc);
+                $_SESSION['flash_msg'] = ['texto' => "Subsector '$nombre' actualizado exitosamente.", 'tipo' => 'success'];
+            } else {
+                $estructuraModel->crearSubsector($sectorId, $codigo, $nombre, $desc);
+                $_SESSION['flash_msg'] = ['texto' => "Subsector '$nombre' creado exitosamente.", 'tipo' => 'success'];
+            }
+        }
+        $redirectUrl = "?tab=sectores";
+    }
+    // 5. Crear / Editar Rol
+    elseif ($action === 'guardar_rol') {
+        $rolId = (int)($_POST['rol_id'] ?? 0);
+        $subsectorId = !empty($_POST['subsector_id']) ? (int)$_POST['subsector_id'] : null;
+        $codigo = trim($_POST['codigo'] ?? '');
+        $nombre = trim($_POST['nombre'] ?? '');
+        $desc = trim($_POST['descripcion'] ?? '');
+        $esAdmin = isset($_POST['es_admin']) ? 1 : 0;
+        if (!empty($codigo) && !empty($nombre)) {
+            if ($rolId > 0) {
+                $estructuraModel->actualizarRol($rolId, $subsectorId, $codigo, $nombre, $desc, $esAdmin);
+                $_SESSION['flash_msg'] = ['texto' => "Rol '$nombre' actualizado exitosamente.", 'tipo' => 'success'];
+            } else {
+                $estructuraModel->crearRol($subsectorId, $codigo, $nombre, $desc, $esAdmin);
+                $_SESSION['flash_msg'] = ['texto' => "Rol '$nombre' creado exitosamente.", 'tipo' => 'success'];
+            }
+        }
+        $redirectUrl = "?tab=roles";
+    }
+    // 6. Guardar Permisos del Rol (Matriz N a N)
+    elseif ($action === 'guardar_permisos_rol') {
+        $rolId = (int)($_POST['rol_id'] ?? 0);
+        $permisosSeleccionados = $_POST['permisos'] ?? [];
+        if ($rolId > 0) {
+            $estructuraModel->guardarPermisosRol($rolId, $permisosSeleccionados);
+            $_SESSION['flash_msg'] = [
+                'texto' => "Permisos del rol actualizados correctamente (Total: " . count($permisosSeleccionados) . " permisos).",
+                'tipo' => 'success'
+            ];
+        }
+        $redirectUrl = "?tab=roles";
+    }
+    // 7. Actualizar Relevamiento Form Submit
+    elseif ($action === 'guardar_obs_relevamiento') {
+        $userId = (int)($_POST['user_id'] ?? 0);
+        $estado = trim($_POST['estado'] ?? 'PENDIENTE');
+        $obs = trim($_POST['obs'] ?? '');
+        $usuarioQuien = $_SESSION['username'] ?? 'FRANCO';
+        if ($userId > 0) {
+            $usuarioModel->actualizarRelevamiento($userId, $estado, $obs, $usuarioQuien);
+            $_SESSION['flash_msg'] = [
+                'texto' => "Observación y estado de relevamiento guardados para el usuario #$userId.",
+                'tipo' => 'success'
+            ];
+        }
+        $redirectUrl = "?tab=relevamiento" . (isset($_POST['query_string']) ? '&' . $_POST['query_string'] : '');
+    }
+
+    header("Location: " . $redirectUrl);
+    exit;
+}
+
+// Recuperar flash message de la sesión si existe
+if (isset($_SESSION['flash_msg'])) {
+    $mensaje = $_SESSION['flash_msg']['texto'] ?? '';
+    $tipoMensaje = $_SESSION['flash_msg']['tipo'] ?? 'success';
+    unset($_SESSION['flash_msg']);
+}
+
+// Estadísticas de Relevamiento
+$statsRelevamiento = $usuarioModel->obtenerEstadisticasRelevamiento();
+$porcentajeCompletitud = $statsRelevamiento['total'] > 0 
+    ? round((($statsRelevamiento['ok'] + $statsRelevamiento['observado'] + $statsRelevamiento['descartado']) / $statsRelevamiento['total']) * 100, 1) 
+    : 0;
+
+// Filtros y Paginación para Usuarios
+$busqueda = trim($_GET['q'] ?? '');
+$tipo = trim($_GET['tipo'] ?? '');
+$sectorFiltro = trim($_GET['sec'] ?? '');
+$categoriaFiltro = trim($_GET['cat'] ?? '');
+$rolFiltro = trim($_GET['rol'] ?? '');
+$pagina = max(1, (int)($_GET['p'] ?? 1));
+$porPagina = max(10, min(1000, (int)($_GET['limit'] ?? 30)));
+$offset = ($pagina - 1) * $porPagina;
+
+$totalUsuarios = $usuarioModel->totalRegistros($busqueda, $tipo, $sectorFiltro, $categoriaFiltro, $rolFiltro);
+$totalPersonales = $usuarioModel->totalPorCategoria('PERSONAL');
+$totalLocales = $usuarioModel->totalPorCategoria('LOCAL');
+$totalMayoristas = $usuarioModel->totalPorCategoria('MAYORISTA');
+$totalGrupos = $usuarioModel->totalPorCategoria('GRUPO');
+
+$usuarios = $usuarioModel->listar($busqueda, $tipo, $sectorFiltro, $categoriaFiltro, $rolFiltro, $porPagina, $offset);
+$tipos = $usuarioModel->obtenerTipos();
+$sectores = $estructuraModel->listarSectores();
+$subsectores = $estructuraModel->listarSubsectores();
+$roles = $estructuraModel->listarRoles();
+$modulos = $estructuraModel->listarModulosConPermisos();
+$modulosHub = $estructuraModel->listarModulosHub();
+$matrizEstructuraHub = ($tab === 'hub_matriz') ? $estructuraModel->obtenerMatrizEstructuraCompleta() : [];
+$totalPaginas = ceil($totalUsuarios / $porPagina);
+
+// Filtros y Paginación para Relevamiento
+$relBusqueda = trim($_GET['q_rel'] ?? '');
+$relEstado = trim($_GET['estado_rel'] ?? '');
+$relCategoria = trim($_GET['cat_rel'] ?? '');
+$relPagina = max(1, (int)($_GET['p_rel'] ?? 1));
+$relPorPagina = max(10, min(1000, (int)($_GET['rel_limit'] ?? 30)));
+$relOffset = ($relPagina - 1) * $relPorPagina;
+
+$totalRelevamiento = $usuarioModel->totalRelevamiento($relBusqueda, $relEstado, $relCategoria);
+$listaRelevamiento = $usuarioModel->listarRelevamiento($relBusqueda, $relEstado, $relCategoria, $relPorPagina, $relOffset);
+$relTotalPaginas = ceil($totalRelevamiento / $relPorPagina);
+
+// Mapa de permisos por rol para Javascript
+$mapaPermisosPorRol = [];
+foreach ($roles as $r) {
+    $mapaPermisosPorRol[$r['id']] = $estructuraModel->obtenerPermisosRol($r['id']);
+}
+?>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Centro de Control de Usuarios & Roles - XL</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .toast-notify {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        /* Custom scrollbar para la tabla */
+        .tabla-scroll-container::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        .tabla-scroll-container::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        .tabla-scroll-container::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        .tabla-scroll-container::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col antialiased">
+
+    <!-- Header Principal Light -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-xs">
+        <div class="w-full px-4 sm:px-6 lg:px-8 py-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div class="flex items-center space-x-3.5">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-md shadow-indigo-200">
+                    <i class="fas fa-id-badge text-lg"></i>
+                </div>
+                <div>
+                    <h1 class="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                        Centro de Control de Usuarios & Roles
+                    </h1>
+                </div>
+            </div>
+
+            <!-- Navegación por Pestañas Light -->
+            <div class="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 space-x-1 overflow-x-auto">
+                <a href="?tab=usuarios" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition <?= $tab === 'usuarios' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900' ?>">
+                    <i class="fas fa-users mr-1.5"></i> Usuarios (<?= number_format($totalUsuarios) ?>)
+                </a>
+                <a href="?tab=relevamiento" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition <?= $tab === 'relevamiento' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900' ?>">
+                    <i class="fas fa-clipboard-check mr-1.5 text-emerald-600"></i> Relevamiento & Checklist
+                    <span id="badgeHeaderRelev" class="ml-1 px-1.5 py-0.2 rounded-full text-[10px] <?= $statsRelevamiento['ok'] > 0 ? 'bg-emerald-100 text-emerald-800 font-bold' : 'bg-slate-200 text-slate-600' ?>">
+                        <?= $statsRelevamiento['ok'] ?>/<?= $statsRelevamiento['total'] ?>
+                    </span>
+                </a>
+                <a href="?tab=hub_matriz" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition <?= $tab === 'hub_matriz' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900' ?>">
+                    <i class="fas fa-shapes mr-1.5 text-indigo-600"></i> Matriz Hub & Accesos
+                    <span class="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-100 text-indigo-800 font-bold">
+                        <?= count($modulosHub) ?> apps
+                    </span>
+                </a>
+                <a href="?tab=sectores" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition <?= $tab === 'sectores' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900' ?>">
+                    <i class="fas fa-sitemap mr-1.5"></i> Sectores (<?= count($sectores) ?>)
+                </a>
+                <a href="?tab=roles" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition <?= $tab === 'roles' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900' ?>">
+                    <i class="fas fa-user-shield mr-1.5"></i> Roles (<?= count($roles) ?>)
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Contenido Principal -->
+    <main class="w-full px-4 sm:px-6 lg:px-8 py-6 flex-1">
+
+        <?php if(!empty($mensaje)): ?>
+            <div id="alertaFlash" class="mb-6 p-4 rounded-xl <?= $tipoMensaje === 'success' ? 'bg-emerald-50 border border-emerald-200 text-emerald-800' : 'bg-rose-50 border border-rose-200 text-rose-800' ?> flex items-center justify-between shadow-xs transition-opacity duration-500">
+                <div class="flex items-center space-x-2.5">
+                    <i class="fas <?= $tipoMensaje === 'success' ? 'fa-circle-check text-emerald-600' : 'fa-triangle-exclamation text-rose-600' ?> text-lg"></i>
+                    <span class="text-sm font-medium"><?= htmlspecialchars($mensaje) ?></span>
+                </div>
+                <button onclick="this.parentElement.remove()" class="text-slate-400 hover:text-slate-600 text-lg">&times;</button>
+            </div>
+            <script>
+                setTimeout(() => {
+                    const alerta = document.getElementById('alertaFlash');
+                    if (alerta) {
+                        alerta.style.opacity = '0';
+                        setTimeout(() => alerta.remove(), 500);
+                    }
+                }, 4000);
+            </script>
+        <?php endif; ?>
+
+        <!-- ========================================== PESTAÑA: RELEVAMIENTO & CHECKLIST ========================================== -->
+        <?php if($tab === 'relevamiento'): ?>
+            <!-- Dashboard de Indicadores & Avance del Relevamiento -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-5">
+                <!-- Tarjeta 1: Avance General con Barra de Progreso -->
+                <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs flex flex-col justify-between">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-[11px] font-bold tracking-wider text-slate-400 uppercase">Avance General</span>
+                        <span id="kpiPorcentajeBadge" class="px-2 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                            <?= $porcentajeCompletitud ?>%
+                        </span>
+                    </div>
+                    <div class="mb-2">
+                        <h4 class="text-2xl font-extrabold text-slate-900" id="kpiTotalAuditados">
+                            <?= ($statsRelevamiento['ok'] + $statsRelevamiento['observado'] + $statsRelevamiento['descartado']) ?> <span class="text-sm font-semibold text-slate-400">/ <?= $statsRelevamiento['total'] ?></span>
+                        </h4>
+                        <p class="text-[11px] text-slate-500">Cuentas Auditadas</p>
+                    </div>
+                    <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                        <div id="kpiProgressBar" class="bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-500 h-2 rounded-full transition-all duration-500" style="width: <?= $porcentajeCompletitud ?>%"></div>
+                    </div>
+                </div>
+
+                <!-- Tarjeta 2: Validados & Funcionales OK -->
+                <a href="?tab=relevamiento&estado_rel=OK" class="bg-white rounded-2xl p-4 border border-slate-200 hover:border-emerald-300 shadow-xs flex items-center justify-between transition group">
+                    <div>
+                        <p class="text-[11px] font-bold tracking-wider text-emerald-600 uppercase flex items-center gap-1.5">
+                            <i class="fas fa-circle-check"></i> Validados OK
+                        </p>
+                        <h4 class="text-2xl font-extrabold text-slate-900 mt-0.5" id="kpiOkCount"><?= number_format($statsRelevamiento['ok']) ?></h4>
+                        <span class="text-[11px] text-slate-400">Listos y funcionales</span>
+                    </div>
+                    <div class="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center group-hover:scale-110 transition shadow-xs">
+                        <i class="fas fa-check-double text-lg"></i>
+                    </div>
+                </a>
+
+                <!-- Tarjeta 3: Con Observaciones / A Ajustar -->
+                <a href="?tab=relevamiento&estado_rel=OBSERVADO" class="bg-white rounded-2xl p-4 border border-slate-200 hover:border-amber-300 shadow-xs flex items-center justify-between transition group">
+                    <div>
+                        <p class="text-[11px] font-bold tracking-wider text-amber-600 uppercase flex items-center gap-1.5">
+                            <i class="fas fa-triangle-exclamation"></i> Observados
+                        </p>
+                        <h4 class="text-2xl font-extrabold text-amber-600 mt-0.5" id="kpiObsCount"><?= number_format($statsRelevamiento['observado']) ?></h4>
+                        <span class="text-[11px] text-slate-400">Requieren ajuste</span>
+                    </div>
+                    <div class="w-11 h-11 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center group-hover:scale-110 transition shadow-xs">
+                        <i class="fas fa-clipboard-list text-lg"></i>
+                    </div>
+                </a>
+
+                <!-- Tarjeta 4: Pendientes de Validación -->
+                <a href="?tab=relevamiento&estado_rel=PENDIENTE" class="bg-white rounded-2xl p-4 border border-slate-200 hover:border-indigo-300 shadow-xs flex items-center justify-between transition group">
+                    <div>
+                        <p class="text-[11px] font-bold tracking-wider text-slate-500 uppercase flex items-center gap-1.5">
+                            <i class="fas fa-clock"></i> Pendientes
+                        </p>
+                        <h4 class="text-2xl font-extrabold text-slate-700 mt-0.5" id="kpiPendCount"><?= number_format($statsRelevamiento['pendiente']) ?></h4>
+                        <span class="text-[11px] text-slate-400">Por verificar</span>
+                    </div>
+                    <div class="w-11 h-11 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center group-hover:scale-110 transition shadow-xs">
+                        <i class="fas fa-hourglass-half text-lg"></i>
+                    </div>
+                </a>
+            </div>
+
+            <!-- Desglose Rápido por Categorías (Mini-Barras de Progreso) -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+                <?php
+                    $catsConf = [
+                        'PERSONAL' => ['label' => 'Personal Staff', 'icon' => 'fa-user-tie', 'color' => 'text-emerald-700', 'bg' => 'bg-emerald-500'],
+                        'LOCAL' => ['label' => 'Locales / Sucursales', 'icon' => 'fa-store', 'color' => 'text-blue-700', 'bg' => 'bg-blue-500'],
+                        'MAYORISTA' => ['label' => 'Mayoristas B2B', 'icon' => 'fa-boxes-packing', 'color' => 'text-teal-700', 'bg' => 'bg-teal-500'],
+                        'GRUPO' => ['label' => 'Grupos Franquicia', 'icon' => 'fa-sitemap', 'color' => 'text-amber-700', 'bg' => 'bg-amber-500'],
+                    ];
+                ?>
+                <?php foreach($catsConf as $kCat => $cConf): ?>
+                    <?php
+                        $catTotal = $statsRelevamiento['por_categoria'][$kCat]['total'] ?? 0;
+                        $catOk = $statsRelevamiento['por_categoria'][$kCat]['ok'] ?? 0;
+                        $catPct = $catTotal > 0 ? round(($catOk / $catTotal) * 100, 1) : 0;
+                    ?>
+                    <a href="?tab=relevamiento&cat_rel=<?= $kCat ?>" class="bg-white p-3 rounded-xl border border-slate-200 hover:border-slate-300 shadow-2xs transition">
+                        <div class="flex items-center justify-between text-xs mb-1.5">
+                            <span class="font-semibold text-slate-700 flex items-center gap-1.5">
+                                <i class="fas <?= $cConf['icon'] ?> <?= $cConf['color'] ?>"></i> <?= $cConf['label'] ?>
+                            </span>
+                            <span class="font-bold <?= $cConf['color'] ?>"><?= $catOk ?>/<?= $catTotal ?></span>
+                        </div>
+                        <div class="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                            <div class="<?= $cConf['bg'] ?> h-1.5 rounded-full" style="width: <?= $catPct ?>%"></div>
+                        </div>
+                    </a>
+                <?php endforeach; ?>
+            </div>
+
+            <!-- Barra de Filtros, Acciones en Lote & Selector de Registros por Página -->
+            <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs mb-4 flex flex-wrap items-center justify-between gap-3">
+                <form method="GET" id="formFiltroRelev" class="flex flex-wrap items-center gap-2.5 flex-1">
+                    <input type="hidden" name="tab" value="relevamiento">
+                    
+                    <div class="relative flex-1 min-w-[200px]">
+                        <i class="fas fa-search absolute left-3.5 top-2.5 text-slate-400 text-xs"></i>
+                        <input type="text" name="q_rel" id="inputBusquedaRel" value="<?= htmlspecialchars($relBusqueda) ?>" placeholder="Buscar por usuario, nombre, cliente o notas..." 
+                                class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
+                    </div>
+
+                    <div class="w-36">
+                        <select name="estado_rel" id="selectEstadoRel" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
+                            <option value="">Todos los Estados</option>
+                            <option value="PENDIENTE" <?= $relEstado === 'PENDIENTE' ? 'selected' : '' ?>>⏳ Pendientes</option>
+                            <option value="OK" <?= $relEstado === 'OK' ? 'selected' : '' ?>>✅ Validados OK</option>
+                            <option value="OBSERVADO" <?= $relEstado === 'OBSERVADO' ? 'selected' : '' ?>>⚠️ Con Observación</option>
+                            <option value="DESCARTADO" <?= $relEstado === 'DESCARTADO' ? 'selected' : '' ?>>🚫 Descartados</option>
+                        </select>
+                    </div>
+
+                    <div class="w-36">
+                        <select name="cat_rel" id="selectCatRel" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
+                            <option value="">Todas las Categorías</option>
+                            <option value="PERSONAL" <?= $relCategoria === 'PERSONAL' ? 'selected' : '' ?>>👤 Personal Staff</option>
+                            <option value="LOCAL" <?= $relCategoria === 'LOCAL' ? 'selected' : '' ?>>🏪 Locales / Sucursales</option>
+                            <option value="MAYORISTA" <?= $relCategoria === 'MAYORISTA' ? 'selected' : '' ?>>📦 Mayoristas B2B</option>
+                            <option value="GRUPO" <?= $relCategoria === 'GRUPO' ? 'selected' : '' ?>>🏢 Grupos Franquicia</option>
+                        </select>
+                    </div>
+
+                    <!-- Selector Registros por Página -->
+                    <div class="w-32">
+                        <select name="rel_limit" onchange="document.getElementById('formFiltroRelev').submit()" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
+                            <option value="30" <?= $relPorPagina == 30 ? 'selected' : '' ?>>30 por pág</option>
+                            <option value="50" <?= $relPorPagina == 50 ? 'selected' : '' ?>>50 por pág</option>
+                            <option value="100" <?= $relPorPagina == 100 ? 'selected' : '' ?>>100 por pág</option>
+                            <option value="250" <?= $relPorPagina == 250 ? 'selected' : '' ?>>250 por pág</option>
+                            <option value="500" <?= $relPorPagina == 500 ? 'selected' : '' ?>>500 por pág</option>
+                            <option value="1000" <?= $relPorPagina >= 1000 ? 'selected' : '' ?>>Ver Todos (<?= $totalRelevamiento ?>)</option>
+                        </select>
+                    </div>
+
+                    <button type="submit" class="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold transition shadow-2xs">
+                        Filtrar
+                    </button>
+                    <?php if(!empty($relBusqueda) || !empty($relEstado) || !empty($relCategoria) || $relPorPagina != 30): ?>
+                        <a href="?tab=relevamiento" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-medium transition">
+                            Limpiar
+                        </a>
+                    <?php endif; ?>
+                </form>
+
+                <!-- Acciones Rápidas en Lote & Exportar -->
+                <div class="flex items-center space-x-2 flex-wrap">
+                    <button type="button" onclick="abrirModalConfirmarFiltroOK(<?= $totalRelevamiento ?>)" class="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition shadow-xs flex items-center gap-1.5 cursor-pointer">
+                        <i class="fas fa-check-double"></i> Marcar <?= $totalRelevamiento ?> Filtrados como OK
+                    </button>
+                    <button type="button" onclick="exportarChecklistCSV()" class="px-3.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-semibold transition shadow-2xs flex items-center gap-1.5 cursor-pointer">
+                        <i class="fas fa-file-csv text-slate-500"></i> Exportar CSV
+                    </button>
+                </div>
+            </div>
+
+            <!-- Banner de Selección Total Multicapa (Cuando se tildan todos los visibles) -->
+            <div id="bannerSeleccionTotal" class="hidden mb-3 p-3 bg-indigo-50 border border-indigo-200 rounded-xl text-xs text-indigo-900 flex items-center justify-between shadow-xs animate-fade-in">
+                <div class="flex items-center space-x-2">
+                    <i class="fas fa-info-circle text-indigo-600 text-sm"></i>
+                    <span>Has seleccionado los <strong><?= count($listaRelevamiento) ?></strong> usuarios visibles de esta página.</span>
+                </div>
+                <button type="button" onclick="abrirModalConfirmarFiltroOK(<?= $totalRelevamiento ?>)" class="font-bold text-indigo-700 hover:text-indigo-900 underline bg-white px-2.5 py-1 rounded-lg border border-indigo-200 shadow-2xs cursor-pointer">
+                    👉 Marcar los <strong><?= $totalRelevamiento ?></strong> usuarios de este filtro como OK
+                </button>
+            </div>
+
+            <!-- Contenedor con SCROLL PROPIO para la Matriz / Tabla -->
+            <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+                <div class="tabla-scroll-container max-h-[62vh] overflow-y-auto overflow-x-auto relative">
+                    <table class="w-full text-left border-collapse text-xs">
+                        <thead class="sticky top-0 z-20 bg-slate-100/95 backdrop-blur-xs border-b border-slate-200 text-slate-600 font-bold uppercase text-[10px] tracking-wider shadow-2xs">
+                            <tr>
+                                <th class="py-3 px-3 text-center w-10 bg-slate-100">
+                                    <input type="checkbox" id="checkMasterRelev" onchange="toggleCheckMaster(this)" class="rounded text-indigo-600 focus:ring-indigo-500">
+                                </th>
+                                <th class="py-3 px-4 bg-slate-100">Usuario & Credenciales</th>
+                                <th class="py-3 px-4 bg-slate-100">Categoría / Tipo</th>
+                                <th class="py-3 px-4 bg-slate-100">Nombre / Local</th>
+                                <th class="py-3 px-4 bg-slate-100">Destino / Portal Real</th>
+                                <th class="py-3 px-4 text-center bg-slate-100">Estado del Relevamiento</th>
+                                <th class="py-3 px-4 bg-slate-100">Observaciones / Auditoría</th>
+                                <th class="py-3 px-4 text-center bg-slate-100">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100" id="tablaCuerpoRelevamiento">
+                            <?php if(empty($listaRelevamiento)): ?>
+                                <tr>
+                                    <td colspan="8" class="text-center py-12 text-slate-400 italic">
+                                        <i class="fas fa-clipboard-question text-3xl text-slate-300 block mb-2"></i>
+                                        No se encontraron usuarios bajo los criterios de relevamiento seleccionados.
+                                    </td>
+                                </tr>
+                            <?php else: ?>
+                                <?php foreach($listaRelevamiento as $u): ?>
+                                    <?php
+                                        $destino = calcularDestinoLogin($u);
+                                        $st = strtoupper(trim($u['relevamiento_estado'] ?? 'PENDIENTE'));
+                                        $passVal = $u['password'] ?: $u['password_plain'] ?: '';
+                                    ?>
+                                    <tr class="hover:bg-slate-50/90 transition group" id="fila-user-<?= $u['id'] ?>">
+                                        <!-- Checkbox Lote -->
+                                        <td class="py-3 px-3 text-center">
+                                            <input type="checkbox" value="<?= $u['id'] ?>" onchange="actualizarEstadoMasterCheck()" class="check-relev-item rounded text-indigo-600 focus:ring-indigo-500">
+                                        </td>
+
+                                        <!-- Usuario & Credenciales con botón de Copiar -->
+                                        <td class="py-3 px-4 font-mono">
+                                            <div class="flex items-center space-x-1.5">
+                                                <span class="font-bold text-slate-900 text-xs">@<?= htmlspecialchars($u['username']) ?></span>
+                                                <button type="button" onclick="copiarCredenciales('<?= htmlspecialchars($u['username']) ?>', '<?= htmlspecialchars($passVal) ?>')" 
+                                                        title="Copiar Usuario y Contraseña para login" class="text-slate-400 hover:text-indigo-600 p-1 rounded transition">
+                                                    <i class="fas fa-copy text-[11px]"></i>
+                                                </button>
+                                            </div>
+                                            <div class="mt-0.5 flex items-center gap-1.5">
+                                                <span class="text-[10px] text-slate-400">Pass:</span>
+                                                <span class="px-1.5 py-0.2 rounded bg-amber-50 border border-amber-200 text-amber-900 font-semibold text-[10px]">
+                                                    <?= htmlspecialchars($passVal ?: '-') ?>
+                                                </span>
+                                            </div>
+                                        </td>
+
+                                        <!-- Categoría / Tipo -->
+                                        <td class="py-3 px-4">
+                                            <?php if($u['categoria_usuario'] === 'GRUPO'): ?>
+                                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                                                    🏢 GRUPO
+                                                </span>
+                                                <span class="block text-[10px] text-slate-500 font-mono mt-0.5"><?= htmlspecialchars($u['cod_client'] ?: '-') ?></span>
+                                            <?php elseif($u['categoria_usuario'] === 'MAYORISTA'): ?>
+                                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-teal-50 text-teal-800 border border-teal-200">
+                                                    📦 MAYORISTA
+                                                </span>
+                                                <span class="block text-[10px] text-slate-500 font-mono mt-0.5"><?= htmlspecialchars($u['cod_client'] ?: '-') ?></span>
+                                            <?php elseif($u['categoria_usuario'] === 'LOCAL'): ?>
+                                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                                                    🏪 <?= htmlspecialchars($u['tipo'] ?: 'LOCAL') ?>
+                                                </span>
+                                                <span class="block text-[10px] text-slate-500 font-mono mt-0.5">Suc: <?= htmlspecialchars($u['nro_sucursal'] ?: $u['cod_client'] ?: '-') ?></span>
+                                            <?php else: ?>
+                                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                                    👤 PERSONAL
+                                                </span>
+                                                <span class="block text-[10px] text-slate-400 font-mono mt-0.5"><?= !empty($u['legajo']) ? 'Leg. ' . $u['legajo'] : ($u['rol_nombre'] ?: 'Staff') ?></span>
+                                            <?php endif; ?>
+                                        </td>
+
+                                        <!-- Nombre Completo / Local -->
+                                        <td class="py-3 px-4 text-slate-700 font-medium">
+                                            <span class="line-clamp-1"><?= htmlspecialchars($u['nombre_completo'] ?: '-') ?></span>
+                                        </td>
+
+                                        <!-- Destino / Portal Real -->
+                                        <td class="py-3 px-4">
+                                            <span class="inline-flex items-center px-2 py-1 rounded-lg text-[10px] font-bold border <?= $destino['badge'] ?>">
+                                                <?= htmlspecialchars($destino['nombre']) ?>
+                                            </span>
+                                        </td>
+
+                                        <!-- Estado del Relevamiento (Checklist Rápido con AJAX) -->
+                                        <td class="py-3 px-4 text-center">
+                                            <div class="inline-flex rounded-xl bg-slate-100 p-0.5 border border-slate-200" id="btn-group-estado-<?= $u['id'] ?>">
+                                                <button type="button" onclick="cambiarEstadoRelevAjax(<?= $u['id'] ?>, 'OK')" 
+                                                        title="Marcar como Probado y Funcional OK"
+                                                        class="px-2.5 py-1 rounded-lg text-[10px] font-bold transition <?= $st === 'OK' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:text-emerald-700' ?>">
+                                                    <i class="fas fa-check mr-1"></i> OK
+                                                </button>
+                                                <button type="button" onclick="abrirModalObsRelev(<?= $u['id'] ?>, '<?= htmlspecialchars(addslashes($u['username'])) ?>', 'OBSERVADO', '<?= htmlspecialchars(addslashes($u['relevamiento_obs'] ?? '')) ?>')" 
+                                                        title="Marcar con Observación o Detalle a Ajustar"
+                                                        class="px-2.5 py-1 rounded-lg text-[10px] font-bold transition <?= $st === 'OBSERVADO' ? 'bg-amber-500 text-white shadow-xs' : 'text-slate-600 hover:text-amber-700' ?>">
+                                                    <i class="fas fa-exclamation-triangle mr-1"></i> Obs
+                                                </button>
+                                                <button type="button" onclick="cambiarEstadoRelevAjax(<?= $u['id'] ?>, 'PENDIENTE')" 
+                                                        title="Volver a Pendiente"
+                                                        class="px-2 py-1 rounded-lg text-[10px] font-bold transition <?= $st === 'PENDIENTE' ? 'bg-slate-300 text-slate-800' : 'text-slate-400 hover:text-slate-700' ?>">
+                                                    ⏳
+                                                </button>
+                                            </div>
+                                        </td>
+
+                                        <!-- Observaciones / Auditoría -->
+                                        <td class="py-3 px-4 text-slate-600">
+                                            <div id="obs-text-<?= $u['id'] ?>" class="text-[11px] <?= empty($u['relevamiento_obs']) ? 'italic text-slate-400' : 'font-medium text-slate-700' ?>">
+                                                <?= htmlspecialchars($u['relevamiento_obs'] ?: 'Sin notas') ?>
+                                            </div>
+                                            <?php if(!empty($u['relevamiento_usuario'])): ?>
+                                                <div class="text-[9px] text-slate-400 mt-0.5">
+                                                    Por <span class="font-semibold"><?= htmlspecialchars($u['relevamiento_usuario']) ?></span>
+                                                    <?= $u['relevamiento_fecha'] ? ' el ' . $u['relevamiento_fecha']->format('d/m H:i') : '' ?>
+                                                </div>
+                                            <?php endif; ?>
+                                        </td>
+
+                                        <!-- Acciones Rápidas -->
+                                        <td class="py-3 px-4 text-center">
+                                            <button type="button" onclick="abrirModalObsRelev(<?= $u['id'] ?>, '<?= htmlspecialchars(addslashes($u['username'])) ?>', '<?= $st ?>', '<?= htmlspecialchars(addslashes($u['relevamiento_obs'] ?? '')) ?>')" 
+                                                    title="Editar Nota / Detalle de Relevamiento" class="p-1.5 bg-slate-100 hover:bg-indigo-100 text-slate-600 hover:text-indigo-700 rounded-lg transition border border-slate-200">
+                                                <i class="fas fa-comment-dots text-xs"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Footer & Paginador Relevamiento -->
+                <div class="px-5 py-3 bg-slate-50/80 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
+                    <div>
+                        Mostrando <span class="font-bold text-slate-800"><?= count($listaRelevamiento) ?></span> de <span class="font-bold text-slate-800"><?= number_format($totalRelevamiento) ?></span> registros • Página <span class="font-bold text-slate-800"><?= $relPagina ?></span> de <span class="font-bold text-slate-800"><?= max(1, $relTotalPaginas) ?></span>
+                    </div>
+
+                    <?php if($relTotalPaginas > 1): ?>
+                        <div class="flex space-x-1.5">
+                            <?php if($relPagina > 1): ?>
+                                <a href="?tab=relevamiento&p_rel=<?= $relPagina - 1 ?>&q_rel=<?= urlencode($relBusqueda) ?>&estado_rel=<?= urlencode($relEstado) ?>&cat_rel=<?= urlencode($relCategoria) ?>&rel_limit=<?= $relPorPagina ?>" class="px-3 py-1 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-medium rounded-lg transition">Anterior</a>
+                            <?php endif; ?>
+                            
+                            <span class="px-3 py-1 bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold rounded-lg"><?= $relPagina ?></span>
+
+                            <?php if($relPagina < $relTotalPaginas): ?>
+                                <a href="?tab=relevamiento&p_rel=<?= $relPagina + 1 ?>&q_rel=<?= urlencode($relBusqueda) ?>&estado_rel=<?= urlencode($relEstado) ?>&cat_rel=<?= urlencode($relCategoria) ?>&rel_limit=<?= $relPorPagina ?>" class="px-3 py-1 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-medium rounded-lg transition">Siguiente</a>
+                            <?php endif; ?>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+        <!-- ========================================== PESTAÑA: USUARIOS ========================================== -->
+        <?php elseif($tab === 'usuarios'): ?>
+            <!-- Tarjetas Resumen Light / Acceso Rápido de Filtros -->
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
+                <a href="?tab=usuarios" class="bg-white rounded-2xl p-4 border <?= empty($categoriaFiltro) ? 'border-indigo-500 ring-2 ring-indigo-500/10' : 'border-slate-200/80 hover:border-slate-300' ?> shadow-xs flex items-center justify-between transition cursor-pointer group">
+                    <div>
+                        <p class="text-[11px] font-semibold tracking-wider text-slate-400 uppercase group-hover:text-slate-600 transition">Total Cuentas</p>
+                        <h4 class="text-xl font-bold text-slate-900 mt-0.5"><?= number_format($totalPersonales + $totalLocales + $totalMayoristas + $totalGrupos) ?></h4>
+                    </div>
+                    <div class="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center group-hover:scale-105 transition">
+                        <i class="fas fa-users text-lg"></i>
+                    </div>
+                </a>
+
+                <a href="?tab=usuarios&cat=PERSONAL" class="bg-white rounded-2xl p-4 border <?= $categoriaFiltro === 'PERSONAL' ? 'border-emerald-500 ring-2 ring-emerald-500/10' : 'border-slate-200/80 hover:border-slate-300' ?> shadow-xs flex items-center justify-between transition cursor-pointer group">
+                    <div>
+                        <p class="text-[11px] font-semibold tracking-wider text-slate-400 uppercase group-hover:text-emerald-700 transition">Personal Staff</p>
+                        <h4 class="text-xl font-bold text-emerald-600 mt-0.5"><?= number_format($totalPersonales) ?></h4>
+                    </div>
+                    <div class="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center group-hover:scale-105 transition">
+                        <i class="fas fa-user-tie text-lg"></i>
+                    </div>
+                </a>
+
+                <a href="?tab=usuarios&cat=LOCAL" class="bg-white rounded-2xl p-4 border <?= $categoriaFiltro === 'LOCAL' ? 'border-blue-500 ring-2 ring-blue-500/10' : 'border-slate-200/80 hover:border-slate-300' ?> shadow-xs flex items-center justify-between transition cursor-pointer group">
+                    <div>
+                        <p class="text-[11px] font-semibold tracking-wider text-slate-400 uppercase group-hover:text-blue-700 transition">Locales / Sucursales</p>
+                        <h4 class="text-xl font-bold text-blue-600 mt-0.5"><?= number_format($totalLocales) ?></h4>
+                    </div>
+                    <div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center group-hover:scale-105 transition">
+                        <i class="fas fa-store text-lg"></i>
+                    </div>
+                </a>
+
+                <a href="?tab=usuarios&cat=MAYORISTA" class="bg-white rounded-2xl p-4 border <?= $categoriaFiltro === 'MAYORISTA' ? 'border-teal-500 ring-2 ring-teal-500/10' : 'border-slate-200/80 hover:border-slate-300' ?> shadow-xs flex items-center justify-between transition cursor-pointer group">
+                    <div>
+                        <p class="text-[11px] font-semibold tracking-wider text-slate-400 uppercase group-hover:text-teal-700 transition">Mayoristas B2B</p>
+                        <h4 class="text-xl font-bold text-teal-600 mt-0.5"><?= number_format($totalMayoristas) ?></h4>
+                    </div>
+                    <div class="w-10 h-10 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center group-hover:scale-105 transition">
+                        <i class="fas fa-boxes-packing text-lg"></i>
+                    </div>
+                </a>
+
+                <a href="?tab=usuarios&cat=GRUPO" class="bg-white rounded-2xl p-4 border <?= $categoriaFiltro === 'GRUPO' ? 'border-amber-500 ring-2 ring-amber-500/10' : 'border-slate-200/80 hover:border-slate-300' ?> shadow-xs flex items-center justify-between transition cursor-pointer group">
+                    <div>
+                        <p class="text-[11px] font-semibold tracking-wider text-slate-400 uppercase group-hover:text-amber-700 transition">Grupos Franquicia</p>
+                        <h4 class="text-xl font-bold text-amber-600 mt-0.5"><?= number_format($totalGrupos) ?></h4>
+                    </div>
+                    <div class="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center group-hover:scale-105 transition">
+                        <i class="fas fa-sitemap text-lg"></i>
+                    </div>
+                </a>
+            </div>
+
+            <!-- Barra de Filtros & Botón Crear Usuario Completa -->
+            <div class="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs mb-4 flex flex-wrap items-center justify-between gap-3">
+                <form method="GET" id="formFiltroUsuarios" class="flex flex-wrap items-center gap-2.5 flex-1">
+                    <input type="hidden" name="tab" value="usuarios">
+                    
+                    <!-- Input de búsqueda -->
+                    <div class="relative flex-1 min-w-[200px]">
+                        <i class="fas fa-search absolute left-3.5 top-2.5 text-slate-400 text-xs"></i>
+                        <input type="text" name="q" value="<?= htmlspecialchars($busqueda) ?>" placeholder="Buscar por usuario, nombre, cliente o legajo..." 
+                                class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
+                    </div>
+
+                    <!-- Filtro Categoría -->
+                    <div class="w-36">
+                        <select name="cat" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
+                            <option value="">Categorías (Todas)</option>
+                            <option value="PERSONAL" <?= $categoriaFiltro === 'PERSONAL' ? 'selected' : '' ?>>👤 Personal Staff</option>
+                            <option value="LOCAL" <?= $categoriaFiltro === 'LOCAL' ? 'selected' : '' ?>>🏪 Locales / Sucursales</option>
+                            <option value="MAYORISTA" <?= $categoriaFiltro === 'MAYORISTA' ? 'selected' : '' ?>>📦 Clientes Mayoristas</option>
+                            <option value="GRUPO" <?= $categoriaFiltro === 'GRUPO' ? 'selected' : '' ?>>🏢 Grupos Franquicia</option>
+                        </select>
+                    </div>
+
+                    <!-- Filtro Sector -->
+                    <div class="w-36">
+                        <select name="sec" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
+                            <option value="">Sectores (Todos)</option>
+                            <?php foreach($sectores as $s): ?>
+                                <option value="<?= $s['id'] ?>" <?= $sectorFiltro == $s['id'] ? 'selected' : '' ?>><?= htmlspecialchars($s['nombre']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <!-- Filtro Rol Asignado -->
+                    <div class="w-40">
+                        <select name="rol" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
+                            <option value="">Roles (Todos)</option>
+                            <?php foreach($roles as $r): ?>
+                                <option value="<?= $r['id'] ?>" <?= $rolFiltro == $r['id'] ? 'selected' : '' ?>><?= htmlspecialchars($r['nombre']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <!-- Filtro Tipo / Alcance -->
+                    <div class="w-40">
+                        <select name="tipo" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-700 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
+                            <option value="">Tipo / Alcance (Todos)</option>
+                            <?php foreach($tipos as $t): ?>
+                                <option value="<?= htmlspecialchars($t) ?>" <?= $tipo === $t ? 'selected' : '' ?>><?= htmlspecialchars($t) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <!-- Selector Registros por Página -->
+                    <div class="w-28">
+                        <select name="limit" onchange="document.getElementById('formFiltroUsuarios').submit()" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
+                            <option value="30" <?= $porPagina == 30 ? 'selected' : '' ?>>30 por pág</option>
+                            <option value="50" <?= $porPagina == 50 ? 'selected' : '' ?>>50 por pág</option>
+                            <option value="100" <?= $porPagina == 100 ? 'selected' : '' ?>>100 por pág</option>
+                            <option value="250" <?= $porPagina == 250 ? 'selected' : '' ?>>250 por pág</option>
+                            <option value="500" <?= $porPagina == 500 ? 'selected' : '' ?>>500 por pág</option>
+                            <option value="1000" <?= $porPagina >= 1000 ? 'selected' : '' ?>>Ver Todos (<?= $totalUsuarios ?>)</option>
+                        </select>
+                    </div>
+
+                    <button type="submit" class="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold transition shadow-2xs">
+                        <i class="fas fa-filter mr-1 text-[10px]"></i> Filtrar
+                    </button>
+                    <?php if(!empty($busqueda) || !empty($tipo) || !empty($sectorFiltro) || !empty($categoriaFiltro) || !empty($rolFiltro) || $porPagina != 30): ?>
+                        <a href="?tab=usuarios" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-medium transition">
+                            Limpiar
+                        </a>
+                    <?php endif; ?>
+                </form>
+
+                <div class="flex items-center space-x-2 flex-wrap">
+                    <a href="?action=exportar_excel_usuarios&q=<?= urlencode($busqueda) ?>&tipo=<?= urlencode($tipo) ?>&sec=<?= urlencode($sectorFiltro) ?>&cat=<?= urlencode($categoriaFiltro) ?>&rol=<?= urlencode($rolFiltro) ?>" 
+                       title="Descargar listado completo de credenciales en Excel / CSV con el filtro actual"
+                       class="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition shadow-xs flex items-center gap-1.5 cursor-pointer">
+                        <i class="fas fa-file-excel text-xs"></i> Exportar Excel (<?= $totalUsuarios ?>)
+                    </a>
+                    <button type="button" onclick="abrirModalEnvioRapidoFiltro()" 
+                            title="Generar texto listo para enviar por WhatsApp o Email" 
+                            class="px-3.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-semibold transition shadow-2xs flex items-center gap-1.5 cursor-pointer">
+                        <i class="fas fa-paper-plane text-indigo-600 text-xs"></i> Envío Rápido
+                    </button>
+                    <button onclick="abrirModalUsuario()" class="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition shadow-xs flex items-center gap-1.5">
+                        <i class="fas fa-plus text-xs"></i> Nuevo Usuario
+                    </button>
+                </div>
+            </div>
+
+            <!-- Tabla de Usuarios con Scroll Propio -->
+            <div class="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+                <div class="tabla-scroll-container max-h-[62vh] overflow-y-auto overflow-x-auto relative">
+                    <table class="w-full text-left border-collapse text-xs">
+                        <thead class="sticky top-0 z-20 bg-slate-100/95 backdrop-blur-xs border-b border-slate-200 text-slate-600 font-bold uppercase text-[10px] tracking-wider shadow-2xs">
+                            <tr>
+                                <th class="py-3 px-4 bg-slate-100">Usuario</th>
+                                <th class="py-3 px-4 bg-slate-100">Categoría</th>
+                                <th class="py-3 px-4 bg-slate-100">Contraseña (SQL)</th>
+                                <th class="py-3 px-4 bg-slate-100">Nombre Completo</th>
+                                <th class="py-3 px-4 bg-slate-100">Sector / Subsector</th>
+                                <th class="py-3 px-4 bg-slate-100">Rol Asignado</th>
+                                <th class="py-3 px-4 bg-slate-100">Tipo / Alcance</th>
+                                <th class="py-3 px-4 text-center bg-slate-100">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            <?php if(empty($usuarios)): ?>
+                                <tr>
+                                    <td colspan="8" class="text-center py-8 text-slate-400 italic">No se encontraron usuarios</td>
+                                </tr>
+                            <?php else: ?>
+                                <?php foreach($usuarios as $u): ?>
+                                    <tr class="hover:bg-slate-50/80 transition">
+                                        <td class="py-3 px-4 font-mono font-bold text-slate-900">
+                                            <div class="flex items-center space-x-2">
+                                                <div class="w-7 h-7 rounded-lg <?= $u['categoria_usuario'] === 'GRUPO' ? 'bg-amber-50 text-amber-600' : ($u['categoria_usuario'] === 'MAYORISTA' ? 'bg-teal-50 text-teal-600' : ($u['categoria_usuario'] === 'LOCAL' ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600')) ?> flex items-center justify-center text-xs">
+                                                    <i class="fas <?= $u['categoria_usuario'] === 'GRUPO' ? 'fa-sitemap' : ($u['categoria_usuario'] === 'MAYORISTA' ? 'fa-boxes-packing' : ($u['categoria_usuario'] === 'LOCAL' ? 'fa-store' : 'fa-user')) ?>"></i>
+                                                </div>
+                                                <div>
+                                                    <span class="block"><?= htmlspecialchars($u['username']) ?></span>
+                                                    <span class="text-[10px] text-slate-400 font-normal">#<?= $u['id'] ?></span>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="py-3 px-4">
+                                            <?php if($u['categoria_usuario'] === 'GRUPO'): ?>
+                                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                                                    GRUPO
+                                                </span>
+                                            <?php elseif($u['categoria_usuario'] === 'MAYORISTA'): ?>
+                                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-50 text-teal-700 border border-teal-200">
+                                                    MAYORISTA
+                                                </span>
+                                            <?php elseif($u['categoria_usuario'] === 'LOCAL'): ?>
+                                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                                                    LOCAL
+                                                </span>
+                                            <?php else: ?>
+                                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                                    PERSONAL
+                                                </span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td class="py-3 px-4 font-mono">
+                                            <span class="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-900 font-semibold tracking-wide text-[11px]">
+                                                <?= htmlspecialchars($u['password'] ?: $u['password_plain'] ?: '-') ?>
+                                            </span>
+                                        </td>
+                                        <td class="py-3 px-4 text-slate-700 font-medium">
+                                            <?= htmlspecialchars($u['nombre_completo'] ?: '-') ?>
+                                            <?php if(!empty($u['email'])): ?>
+                                                <span class="block text-[10px] text-slate-400"><?= htmlspecialchars($u['email']) ?></span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td class="py-3 px-4">
+                                            <?php if(!empty($u['sector_nombre'])): ?>
+                                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-purple-50 text-purple-700 border border-purple-100">
+                                                    <?= htmlspecialchars($u['sector_nombre']) ?>
+                                                </span>
+                                                <?php if(!empty($u['subsector_nombre'])): ?>
+                                                    <span class="block text-[10px] text-slate-400 mt-0.5"><?= htmlspecialchars($u['subsector_nombre']) ?></span>
+                                                <?php endif; ?>
+                                            <?php else: ?>
+                                                <span class="text-slate-400 italic text-[11px]">Sin asignar</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td class="py-3 px-4">
+                                            <?php if(!empty($u['rol_nombre'])): ?>
+                                                <span class="inline-flex items-center px-2.5 py-1 rounded-lg text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                                    <i class="fas fa-user-shield mr-1 text-[9px]"></i> <?= htmlspecialchars($u['rol_nombre']) ?>
+                                                </span>
+                                            <?php else: ?>
+                                                <span class="text-slate-400 italic text-[11px]">Sin rol</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td class="py-3 px-4 font-mono text-slate-600 text-[11px]">
+                                            <?php if($u['categoria_usuario'] === 'GRUPO'): ?>
+                                                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-amber-50 border border-amber-200 font-bold text-amber-800 mr-1">GRUPO</span>
+                                                <span class="font-semibold text-slate-800"><?= htmlspecialchars($u['cod_client'] ?: '-') ?></span>
+                                            <?php elseif($u['categoria_usuario'] === 'MAYORISTA'): ?>
+                                                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-teal-50 border border-teal-200 font-bold text-teal-800 mr-1">B2B</span>
+                                                <span class="font-semibold text-slate-800"><?= htmlspecialchars($u['cod_client'] ?: '-') ?></span>
+                                                <?= !empty($u['cod_vendedor']) ? " • Vend <span class='text-teal-700 font-bold'>{$u['cod_vendedor']}</span>" : '' ?>
+                                            <?php elseif($u['categoria_usuario'] === 'LOCAL'): ?>
+                                                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-blue-50 border border-blue-200 font-bold text-blue-800 mr-1"><?= htmlspecialchars($u['tipo'] ?: 'LOCAL') ?></span>
+                                                <?php if(!empty($u['cod_client']) || !empty($u['nro_sucursal'])): ?>
+                                                    <span class="font-semibold text-slate-800"><?= htmlspecialchars($u['cod_client'] ?: '-') ?></span>
+                                                    <?= $u['nro_sucursal'] ? " • Suc <span class='text-indigo-600 font-bold'>{$u['nro_sucursal']}</span>" : '' ?>
+                                                <?php endif; ?>
+                                            <?php else: ?>
+                                                <?php if(!empty($u['legajo'])): ?>
+                                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-emerald-50 font-bold text-emerald-700 mr-1 border border-emerald-200">
+                                                        Leg. <?= $u['legajo'] ?>
+                                                    </span>
+                                                <?php endif; ?>
+                                                <?php if(!empty($u['nro_sucurs'])): ?>
+                                                    <span class="text-slate-700 font-medium">Sucs: <span class="text-indigo-600 font-bold"><?= htmlspecialchars($u['nro_sucurs']) ?></span></span>
+                                                <?php elseif(empty($u['legajo'])): ?>
+                                                    <span class="text-slate-400 text-[11px]">Personal Interno</span>
+                                                <?php endif; ?>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td class="py-3 px-4 text-center">
+                                            <div class="inline-flex items-center space-x-1.5">
+                                                <button onclick='abrirModalEnvioRapidoUsuario(<?= json_encode($u) ?>)' 
+                                                        title="Envío Rápido de Credenciales (WhatsApp / Email)" 
+                                                        class="p-1.5 bg-slate-100 hover:bg-emerald-100 text-slate-600 hover:text-emerald-700 rounded-lg transition border border-slate-200">
+                                                    <i class="fas fa-paper-plane text-xs"></i>
+                                                </button>
+                                                <button onclick="editarPass(<?= $u['id'] ?>, '<?= htmlspecialchars($u['username']) ?>', '<?= htmlspecialchars($u['password'] ?: $u['password_plain'] ?: '') ?>')" 
+                                                        title="Editar Contraseña" class="p-1.5 bg-slate-100 hover:bg-amber-100 text-slate-600 hover:text-amber-700 rounded-lg transition border border-slate-200">
+                                                    <i class="fas fa-key text-xs"></i>
+                                                </button>
+                                                <button onclick='editarUsuario(<?= json_encode($u) ?>)' 
+                                                        title="Editar Usuario / Sector" class="p-1.5 bg-slate-100 hover:bg-indigo-100 text-slate-600 hover:text-indigo-700 rounded-lg transition border border-slate-200">
+                                                    <i class="fas fa-pencil text-xs"></i>
+                                                </button>
+                                                <button onclick="confirmarEliminarUsuario(<?= $u['id'] ?>, '<?= htmlspecialchars($u['username']) ?>')" 
+                                                        title="Eliminar Usuario" class="p-1.5 bg-slate-100 hover:bg-rose-100 text-slate-500 hover:text-rose-600 rounded-lg transition border border-slate-200">
+                                                    <i class="fas fa-trash-can text-xs"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Footer & Paginador Usuarios -->
+                <div class="px-5 py-3 bg-slate-50/80 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
+                    <div>
+                        Mostrando <span class="font-bold text-slate-800"><?= count($usuarios) ?></span> de <span class="font-bold text-slate-800"><?= number_format($totalUsuarios) ?></span> registros • Página <span class="font-bold text-slate-800"><?= $pagina ?></span> de <span class="font-bold text-slate-800"><?= max(1, $totalPaginas) ?></span>
+                    </div>
+
+                    <?php if($totalPaginas > 1): ?>
+                        <div class="flex space-x-1.5">
+                            <?php if($pagina > 1): ?>
+                                <a href="?tab=usuarios&p=<?= $pagina - 1 ?>&q=<?= urlencode($busqueda) ?>&tipo=<?= urlencode($tipo) ?>&sec=<?= urlencode($sectorFiltro) ?>&cat=<?= urlencode($categoriaFiltro) ?>&rol=<?= urlencode($rolFiltro) ?>&limit=<?= $porPagina ?>" class="px-3 py-1 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-medium rounded-lg transition">Anterior</a>
+                            <?php endif; ?>
+
+                            <span class="px-3 py-1 bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold rounded-lg"><?= $pagina ?></span>
+
+                            <?php if($pagina < $totalPaginas): ?>
+                                <a href="?tab=usuarios&p=<?= $pagina + 1 ?>&q=<?= urlencode($busqueda) ?>&tipo=<?= urlencode($tipo) ?>&sec=<?= urlencode($sectorFiltro) ?>&cat=<?= urlencode($categoriaFiltro) ?>&rol=<?= urlencode($rolFiltro) ?>&limit=<?= $porPagina ?>" class="px-3 py-1 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-medium rounded-lg transition">Siguiente</a>
+                            <?php endif; ?>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+        <!-- ========================================== PESTAÑA: SECTORES & SUBSECTORES ========================================== -->
+        <?php elseif($tab === 'sectores'): ?>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- Columna Izquierda: Formularios Crear Sector & Subsector -->
+                <div class="space-y-6">
+                    <!-- Form Crear / Editar Sector -->
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-sm font-bold text-slate-900 flex items-center gap-2" id="tituloFormSector">
+                                <i class="fas fa-folder-plus text-indigo-600"></i> Nuevo Sector Principal
+                            </h3>
+                            <button type="button" onclick="resetFormSector()" id="btnResetSector" class="text-[11px] text-indigo-600 hover:underline hidden">
+                                Cancelar Edición
+                            </button>
+                        </div>
+                        <form method="POST" class="space-y-3" id="formSector">
+                            <input type="hidden" name="action" value="guardar_sector">
+                            <input type="hidden" name="sector_id" id="inputSectorId" value="0">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">Código (Único)</label>
+                                <input type="text" name="codigo" id="inputSectorCodigo" placeholder="EJ: MARKETING" required 
+                                       class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 font-mono uppercase focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">Nombre del Sector</label>
+                                <input type="text" name="nombre" id="inputSectorNombre" placeholder="Marketing y Publicidad" required 
+                                       class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">Descripción</label>
+                                <textarea name="descripcion" id="inputSectorDesc" rows="2" placeholder="Alcance o propósito del área..." 
+                                          class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"></textarea>
+                            </div>
+                            <button type="submit" id="btnSubmitSector" class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition shadow-sm">
+                                Crear Sector
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- Form Crear / Editar Subsector -->
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-sm font-bold text-slate-900 flex items-center gap-2" id="tituloFormSubsector">
+                                <i class="fas fa-diagram-project text-purple-600"></i> Nuevo Subsector / Equipo
+                            </h3>
+                            <button type="button" onclick="resetFormSubsector()" id="btnResetSubsector" class="text-[11px] text-purple-600 hover:underline hidden">
+                                Cancelar Edición
+                            </button>
+                        </div>
+                        <form method="POST" class="space-y-3" id="formSubsector">
+                            <input type="hidden" name="action" value="guardar_subsector">
+                            <input type="hidden" name="subsector_id" id="inputSubsectorId" value="0">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">Sector Padre</label>
+                                <select name="sector_id" id="inputSubsectorPadre" required 
+                                        class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500">
+                                    <option value="">Seleccione Sector Principal</option>
+                                    <?php foreach($sectores as $s): ?>
+                                        <option value="<?= $s['id'] ?>"><?= htmlspecialchars($s['nombre']) ?> (<?= htmlspecialchars($s['codigo']) ?>)</option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">Código del Subsector</label>
+                                <input type="text" name="codigo" id="inputSubsectorCodigo" placeholder="EJ: DISENO" required 
+                                       class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 font-mono uppercase focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">Nombre del Subsector</label>
+                                <input type="text" name="nombre" id="inputSubsectorNombre" placeholder="Diseño Gráfico & Audiovisual" required 
+                                       class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">Descripción</label>
+                                <textarea name="descripcion" id="inputSubsectorDesc" rows="2" placeholder="Detalle funcional del equipo..." 
+                                          class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"></textarea>
+                            </div>
+                            <button type="submit" id="btnSubmitSubsector" class="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-xl transition shadow-sm">
+                                Crear Subsector
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Columna Derecha: Árbol Estructural Interactivo -->
+                <div class="md:col-span-2 space-y-4">
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+                        <div class="flex items-center justify-between mb-4">
+                            <div>
+                                <h3 class="text-sm font-bold text-slate-900 flex items-center gap-2">
+                                    <i class="fas fa-sitemap text-indigo-600"></i> Estructura Organizacional
+                                </h3>
+                                <p class="text-xs text-slate-500 mt-0.5">Sectores corporativos y sus correspondientes subsectores de trabajo.</p>
+                            </div>
+                            <span class="text-xs bg-indigo-50 text-indigo-700 font-semibold px-3 py-1 rounded-full border border-indigo-100">
+                                <?= count($sectores) ?> Sectores / <?= count($subsectores) ?> Subsectores
+                            </span>
+                        </div>
+
+                        <?php if(empty($sectores)): ?>
+                            <p class="text-xs text-slate-400 italic text-center py-8">No hay sectores creados. Utilice el formulario de la izquierda.</p>
+                        <?php else: ?>
+                            <div class="space-y-4">
+                                <?php foreach($sectores as $s): ?>
+                                    <div class="border border-slate-200 rounded-xl overflow-hidden bg-slate-50/50">
+                                        <!-- Header del Sector -->
+                                        <div class="bg-white p-4 border-b border-slate-200 flex items-center justify-between">
+                                            <div class="flex items-center space-x-3">
+                                                <div class="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-xs">
+                                                    <i class="fas fa-folder text-sm"></i>
+                                                </div>
+                                                <div>
+                                                    <div class="flex items-center space-x-2">
+                                                        <h4 class="text-xs font-bold text-slate-900"><?= htmlspecialchars($s['nombre']) ?></h4>
+                                                        <span class="text-[10px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded"><?= htmlspecialchars($s['codigo']) ?></span>
+                                                    </div>
+                                                    <p class="text-[11px] text-slate-500 mt-0.5"><?= htmlspecialchars($s['descripcion'] ?: 'Sin descripción') ?></p>
+                                                </div>
+                                            </div>
+                                            <div class="flex items-center space-x-2">
+                                                <span class="text-xs text-slate-400 mr-2"><i class="fas fa-users mr-1"></i> <?= $s['cant_usuarios'] ?> usuarios</span>
+                                                <button onclick='cargarEditarSector(<?= json_encode($s) ?>)' 
+                                                        title="Editar Sector" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition text-xs">
+                                                    <i class="fas fa-pencil"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <!-- Lista de Subsectores Hijos -->
+                                        <div class="p-3 space-y-2">
+                                            <?php 
+                                                $subsDelSector = array_filter($subsectores, function($sub) use ($s) {
+                                                    return $sub['sector_id'] == $s['id'];
+                                                });
+                                            ?>
+                                            <?php if(empty($subsDelSector)): ?>
+                                                <p class="text-[11px] text-slate-400 italic px-2 py-1">Sin subsectores asociados.</p>
+                                            <?php else: ?>
+                                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                    <?php foreach($subsDelSector as $sub): ?>
+                                                        <div class="bg-white p-2.5 rounded-lg border border-slate-200/80 flex items-center justify-between shadow-2xs hover:border-purple-200 transition">
+                                                            <div>
+                                                                <div class="flex items-center space-x-1.5">
+                                                                    <i class="fas fa-turn-up rotate-90 text-slate-300 text-[10px]"></i>
+                                                                    <span class="text-xs font-semibold text-slate-800"><?= htmlspecialchars($sub['nombre']) ?></span>
+                                                                    <span class="text-[9px] font-mono text-purple-600 bg-purple-50 px-1 rounded"><?= htmlspecialchars($sub['codigo']) ?></span>
+                                                                </div>
+                                                                <div class="text-[10px] text-slate-400 ml-4 mt-0.5 flex items-center space-x-2">
+                                                                    <span><i class="fas fa-users text-[9px] mr-1"></i><?= $sub['cant_usuarios'] ?></span>
+                                                                    <span>•</span>
+                                                                    <span><i class="fas fa-user-shield text-[9px] mr-1"></i><?= $sub['cant_roles'] ?> roles</span>
+                                                                </div>
+                                                            </div>
+                                                            <button onclick='cargarEditarSubsector(<?= json_encode($sub) ?>)' 
+                                                                    title="Editar Subsector" class="p-1 text-slate-400 hover:text-purple-600 transition text-xs">
+                                                                <i class="fas fa-pencil"></i>
+                                                            </button>
+                                                        </div>
+                                                    <?php endforeach; ?>
+                                                </div>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+
+        <!-- ========================================== PESTAÑA: ROLES & PERMISOS ========================================== -->
+        <?php elseif($tab === 'roles'): ?>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- Columna Izquierda: Form Crear / Editar Rol -->
+                <div>
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs sticky top-20">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-sm font-bold text-slate-900 flex items-center gap-2" id="tituloFormRol">
+                                <i class="fas fa-shield-cat text-indigo-600"></i> Nuevo Rol
+                            </h3>
+                            <button type="button" onclick="resetFormRol()" id="btnResetRol" class="text-[11px] text-indigo-600 hover:underline hidden">
+                                Cancelar Edición
+                            </button>
+                        </div>
+                        <form method="POST" class="space-y-3" id="formRol">
+                            <input type="hidden" name="action" value="guardar_rol">
+                            <input type="hidden" name="rol_id" id="inputRolId" value="0">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">Subsector / Área de Pertenencia</label>
+                                <select name="subsector_id" id="inputRolSubsector" 
+                                        class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                                    <option value="">Rol Global (Aplica a toda la empresa)</option>
+                                    <?php foreach($subsectores as $sub): ?>
+                                        <option value="<?= $sub['id'] ?>"><?= htmlspecialchars($sub['sector_nombre']) ?> › <?= htmlspecialchars($sub['nombre']) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">Código del Rol</label>
+                                <input type="text" name="codigo" id="inputRolCodigo" placeholder="EJ: ANALISTA_SR" required 
+                                       class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 font-mono uppercase focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">Nombre del Rol</label>
+                                <input type="text" name="nombre" id="inputRolNombre" placeholder="Analista Senior de Tesorería" required 
+                                       class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">Descripción</label>
+                                <textarea name="descripcion" id="inputRolDesc" rows="2" placeholder="Responsabilidades o nivel de acceso..." 
+                                          class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"></textarea>
+                            </div>
+                            <div class="flex items-center pt-1">
+                                <input type="checkbox" name="es_admin" id="inputRolAdmin" value="1" class="rounded text-indigo-600 focus:ring-indigo-500">
+                                <label for="inputRolAdmin" class="ml-2 text-xs text-slate-700 font-semibold">¿Es Rol de Administrador Total?</label>
+                            </div>
+                            <button type="submit" id="btnSubmitRol" class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition shadow-sm">
+                                Guardar Rol
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Columna Derecha: Lista de Roles Agrupados por Sector -> Subsector -->
+                <div class="md:col-span-2 space-y-4">
+                    <?php
+                        // 1. Mapear roles por subsector_id y capturar roles globales
+                        $mapaRolesPorSubsector = [];
+                        $rolesGlobales = [];
+
+                        foreach($roles as $r) {
+                            if (empty($r['subsector_id'])) {
+                                $rolesGlobales[] = $r;
+                            } else {
+                                $mapaRolesPorSubsector[(int)$r['subsector_id']][] = $r;
+                            }
+                        }
+
+                        // 2. Construir árbol completo con TODOS los sectores y TODOS los subsectores
+                        $arbolSectoresRoles = [];
+                        foreach($sectores as $s) {
+                            $sId = (int)$s['id'];
+                            
+                            $subsectoresDelSector = array_filter($subsectores, function($sub) use ($sId) {
+                                return (int)$sub['sector_id'] === $sId;
+                            });
+
+                            $subsConRoles = [];
+                            $totalRolesSector = 0;
+                            $totalUsuariosSector = 0;
+
+                            foreach($subsectoresDelSector as $sub) {
+                                $subId = (int)$sub['id'];
+                                $rolesDelSub = $mapaRolesPorSubsector[$subId] ?? [];
+                                $totalRolesSector += count($rolesDelSub);
+                                
+                                foreach($rolesDelSub as $r) {
+                                    $totalUsuariosSector += (int)($r['cant_usuarios'] ?? 0);
+                                }
+
+                                $subsConRoles[] = [
+                                    'id' => $subId,
+                                    'nombre' => $sub['nombre'],
+                                    'codigo' => $sub['codigo'],
+                                    'roles' => $rolesDelSub
+                                ];
+                            }
+
+                            $arbolSectoresRoles[] = [
+                                'id' => $sId,
+                                'nombre' => $s['nombre'],
+                                'codigo' => $s['codigo'],
+                                'subsectores' => $subsConRoles,
+                                'total_roles' => $totalRolesSector,
+                                'total_usuarios' => $totalUsuariosSector
+                            ];
+                        }
+                    ?>
+
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs mb-4">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div>
+                                <h3 class="text-sm font-bold text-slate-900 flex items-center gap-2">
+                                    <i class="fas fa-user-shield text-indigo-600"></i> Roles por Sector & Subsector
+                                </h3>
+                                <span class="text-xs text-slate-400" id="contadorRolesVisibles"><?= count($roles) ?> roles configurados en <?= count($sectores) ?> sectores</span>
+                            </div>
+
+                            <div class="flex flex-wrap items-center gap-2">
+                                <!-- Buscador Rápido de Roles -->
+                                <div class="relative w-full sm:w-60">
+                                    <i class="fas fa-search absolute left-3 top-2.5 text-slate-400 text-xs"></i>
+                                    <input type="text" id="buscadorRoles" oninput="filtrarRolesEnVivo(this.value)" placeholder="Buscar rol, código, sector..." 
+                                           class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
+                                </div>
+
+                                <!-- Botón Colapsar / Expandir Todos -->
+                                <button type="button" onclick="toggleTodosSectoresRoles()" id="btnToggleTodosRoles" 
+                                        class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl border border-slate-200 transition flex items-center gap-1.5 cursor-pointer">
+                                    <i class="fas fa-layer-group text-[11px]"></i> <span id="lblToggleTodosRoles">Colapsar todos</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-4" id="contenedorListaRoles">
+                        
+                        <!-- 1. Roles Globales (si existen) -->
+                        <?php if(!empty($rolesGlobales)): ?>
+                            <div class="sector-roles-bloque bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden transition" data-sector="global">
+                                <div class="p-3.5 bg-slate-100/80 border-b border-slate-200 flex items-center justify-between cursor-pointer select-none" onclick="toggleSectorRoles('global')">
+                                    <div class="flex items-center gap-2.5">
+                                        <div class="w-7 h-7 rounded-lg bg-slate-700 text-white flex items-center justify-center text-xs shadow-2xs">
+                                            <i class="fas fa-globe"></i>
+                                        </div>
+                                        <div>
+                                            <h4 class="text-xs font-bold text-slate-900">Roles Globales (Toda la Empresa)</h4>
+                                            <span class="text-[10px] text-slate-500"><?= count($rolesGlobales) ?> roles generales</span>
+                                        </div>
+                                    </div>
+                                    <i class="fas fa-chevron-down text-slate-400 transition-transform duration-200 chevron-sector-roles" id="chevronSectorRoles_global"></i>
+                                </div>
+                                <div class="p-4 space-y-3 sector-roles-contenido" id="contenidoSectorRoles_global">
+                                    <?php foreach($rolesGlobales as $r): ?>
+                                        <?php 
+                                            $textoBusquedaRol = strtolower($r['nombre'] . ' ' . $r['codigo'] . ' ' . ($r['descripcion'] ?? '') . ' global general');
+                                        ?>
+                                        <div class="item-rol-card border border-slate-200 rounded-xl p-3.5 bg-white hover:border-indigo-300 hover:shadow-xs transition duration-150" data-search="<?= htmlspecialchars($textoBusquedaRol) ?>">
+                                            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                                                <div class="flex items-center gap-2 flex-wrap">
+                                                    <h4 class="text-xs font-bold text-slate-900"><?= htmlspecialchars($r['nombre']) ?></h4>
+                                                    <span class="text-[10px] font-mono text-slate-600 bg-slate-50 px-2 py-0.5 rounded border border-slate-200 font-semibold"><?= htmlspecialchars($r['codigo']) ?></span>
+                                                    <?php if($r['es_admin']): ?>
+                                                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">Admin Total</span>
+                                                    <?php endif; ?>
+                                                </div>
+                                                <div class="flex items-center gap-2 shrink-0">
+                                                    <button onclick="abrirModalPermisos(<?= $r['id'] ?>, '<?= htmlspecialchars($r['nombre']) ?>', <?= (int)$r['es_admin'] ?>)" 
+                                                            class="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold border border-indigo-200 transition flex items-center gap-1 shadow-2xs cursor-pointer">
+                                                        <i class="fas fa-sliders text-[11px]"></i> <span><?= $r['cant_permisos'] ?> permisos</span>
+                                                    </button>
+                                                    <button onclick='cargarEditarRol(<?= json_encode($r) ?>)' 
+                                                            title="Editar Rol" class="p-1 bg-white hover:bg-slate-100 text-slate-500 hover:text-indigo-600 rounded-lg transition border border-slate-200 cursor-pointer">
+                                                        <i class="fas fa-pencil text-xs"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="pt-2 flex items-center justify-between text-xs text-slate-500">
+                                                <p class="text-xs text-slate-600 line-clamp-1 pr-4"><?= htmlspecialchars($r['descripcion'] ?: 'Sin descripción') ?></p>
+                                                <span class="shrink-0 text-slate-500 text-[11px] font-medium"><i class="fas fa-users mr-1 text-slate-400"></i> <?= $r['cant_usuarios'] ?> usuarios</span>
+                                            </div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        <?php endif; ?>
+
+                        <!-- 2. Bloques por Sector (TODOS los sectores) -->
+                        <?php foreach($arbolSectoresRoles as $sec): ?>
+                            <?php $secSlug = 'sec_' . $sec['id']; ?>
+                            <div class="sector-roles-bloque bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden transition" data-sector="<?= htmlspecialchars(strtolower($sec['nombre'] . ' ' . $sec['codigo'])) ?>">
+                                <!-- Cabecera de Sector -->
+                                <div class="p-3.5 bg-slate-50/90 border-b border-slate-200 flex items-center justify-between cursor-pointer select-none" onclick="toggleSectorRoles('<?= $secSlug ?>')">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center text-sm shadow-2xs">
+                                            <i class="fas fa-folder-tree"></i>
+                                        </div>
+                                        <div>
+                                            <div class="flex items-center gap-2">
+                                                <h3 class="text-sm font-bold text-slate-900"><?= htmlspecialchars($sec['nombre']) ?></h3>
+                                                <span class="text-[10px] font-mono text-slate-500 bg-white px-1.5 py-0.2 rounded border border-slate-200 font-semibold"><?= htmlspecialchars($sec['codigo']) ?></span>
+                                                <span class="text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-100 px-2 py-0.2 rounded-full font-semibold">
+                                                    <?= $sec['total_roles'] ?> <?= $sec['total_roles'] === 1 ? 'rol' : 'roles' ?>
+                                                </span>
+                                            </div>
+                                            <p class="text-[11px] text-slate-500"><?= count($sec['subsectores']) ?> <?= count($sec['subsectores']) === 1 ? 'subsector' : 'subsectores' ?> · <?= $sec['total_usuarios'] ?> usuarios asignados</p>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <i class="fas fa-chevron-down text-slate-400 transition-transform duration-200 chevron-sector-roles" id="chevronSectorRoles_<?= $secSlug ?>"></i>
+                                    </div>
+                                </div>
+
+                                <!-- Contenido: TODOS sus Subsectores -->
+                                <div class="p-4 space-y-4 sector-roles-contenido" id="contenidoSectorRoles_<?= $secSlug ?>">
+                                    <?php if(empty($sec['subsectores'])): ?>
+                                        <p class="text-xs text-slate-400 italic py-2">No hay subsectores configurados en este sector.</p>
+                                    <?php else: ?>
+                                        <?php foreach($sec['subsectores'] as $sub): ?>
+                                            <div class="subsector-roles-bloque border border-slate-200/90 rounded-xl p-3.5 bg-slate-50/40" data-subsector="<?= htmlspecialchars(strtolower($sub['nombre'] . ' ' . $sub['codigo'] . ' ' . $sec['nombre'])) ?>">
+                                                <div class="flex items-center justify-between pb-2.5 mb-3 border-b border-slate-200/70">
+                                                    <div class="flex items-center gap-2">
+                                                        <span class="w-2 h-2 rounded-full <?= empty($sub['roles']) ? 'bg-amber-400' : 'bg-indigo-500' ?>"></span>
+                                                        <h4 class="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                                                            <?= htmlspecialchars($sub['nombre']) ?>
+                                                        </h4>
+                                                        <span class="text-[10px] bg-white text-slate-600 border border-slate-200 px-2 py-0.2 rounded-full font-semibold">
+                                                            <?= count($sub['roles']) ?> <?= count($sub['roles']) === 1 ? 'rol' : 'roles' ?>
+                                                        </span>
+                                                    </div>
+
+                                                    <button type="button" onclick="crearRolParaSubsector(<?= $sub['id'] ?>)" 
+                                                            title="Crear un nuevo rol para este subsector"
+                                                            class="px-2 py-0.5 bg-white hover:bg-indigo-50 text-indigo-700 hover:text-indigo-800 text-[11px] font-semibold rounded-lg border border-slate-200 hover:border-indigo-200 transition flex items-center gap-1 cursor-pointer">
+                                                        <i class="fas fa-plus text-[9px]"></i> Nuevo Rol
+                                                    </button>
+                                                </div>
+
+                                                <!-- Tarjetas de Roles o Aviso si está vacío -->
+                                                <?php if(empty($sub['roles'])): ?>
+                                                    <div class="item-rol-card p-3 bg-white/70 rounded-xl border border-dashed border-slate-200 text-center text-xs text-slate-400 flex items-center justify-between" data-search="<?= htmlspecialchars(strtolower($sec['nombre'] . ' ' . $sub['nombre'] . ' ' . $sub['codigo'])) ?>">
+                                                        <span class="italic text-[11px]"><i class="fas fa-info-circle text-slate-300 mr-1"></i> Sin roles creados en este subsector todavía.</span>
+                                                        <button type="button" onclick="crearRolParaSubsector(<?= $sub['id'] ?>)" class="text-indigo-600 font-semibold text-xs hover:underline cursor-pointer">
+                                                            + Crear primer rol
+                                                        </button>
+                                                    </div>
+                                                <?php else: ?>
+                                                    <div class="space-y-2.5">
+                                                        <?php foreach($sub['roles'] as $r): ?>
+                                                            <?php 
+                                                                $textoBusquedaRol = strtolower($r['nombre'] . ' ' . $r['codigo'] . ' ' . $sec['nombre'] . ' ' . $sub['nombre'] . ' ' . ($r['descripcion'] ?? ''));
+                                                            ?>
+                                                            <div class="item-rol-card border border-slate-200 rounded-xl p-3 bg-white hover:border-indigo-300 hover:shadow-xs transition duration-150" data-search="<?= htmlspecialchars($textoBusquedaRol) ?>">
+                                                                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                                                                    <div class="flex items-center gap-2 flex-wrap">
+                                                                        <h4 class="text-xs font-bold text-slate-900"><?= htmlspecialchars($r['nombre']) ?></h4>
+                                                                        <span class="text-[10px] font-mono text-slate-600 bg-slate-50 px-2 py-0.5 rounded border border-slate-200 font-semibold"><?= htmlspecialchars($r['codigo']) ?></span>
+                                                                        <?php if($r['es_admin']): ?>
+                                                                            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">Admin Total</span>
+                                                                        <?php endif; ?>
+                                                                    </div>
+
+                                                                    <div class="flex items-center gap-2 shrink-0">
+                                                                        <button onclick="abrirModalPermisos(<?= $r['id'] ?>, '<?= htmlspecialchars($r['nombre']) ?>', <?= (int)$r['es_admin'] ?>)" 
+                                                                                class="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold border border-indigo-200 transition flex items-center gap-1 shadow-2xs cursor-pointer">
+                                                                            <i class="fas fa-sliders text-[11px]"></i> <span><?= $r['cant_permisos'] ?> permisos</span>
+                                                                        </button>
+                                                                        <button onclick='cargarEditarRol(<?= json_encode($r) ?>)' 
+                                                                                title="Editar Rol" class="p-1 bg-white hover:bg-slate-100 text-slate-500 hover:text-indigo-600 rounded-lg transition border border-slate-200 cursor-pointer">
+                                                                            <i class="fas fa-pencil text-xs"></i>
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div class="pt-2 flex items-center justify-between text-xs text-slate-500">
+                                                                    <p class="text-xs text-slate-600 line-clamp-1 pr-4"><?= htmlspecialchars($r['descripcion'] ?: 'Sin descripción') ?></p>
+                                                                    <span class="shrink-0 text-slate-500 text-[11px] font-medium"><i class="fas fa-users mr-1 text-slate-400"></i> <?= $r['cant_usuarios'] ?> usuarios</span>
+                                                                </div>
+                                                            </div>
+                                                        <?php endforeach; ?>
+                                                    </div>
+                                                <?php endif; ?>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+
+                    <div id="sinResultadosRoles" class="hidden text-center py-8 text-slate-400 text-xs bg-white rounded-2xl border border-slate-200">
+                        <i class="fas fa-search text-slate-300 text-2xl mb-2 block"></i>
+                        No se encontraron roles que coincidan con la búsqueda.
+                    </div>
+                </div>
+            </div>
+
+        <!-- ========================================== PESTAÑA: MATRIZ HUB & ACCESOS ========================================== -->
+        <?php elseif($tab === 'hub_matriz'): ?>
+            <!-- Header de la Matriz & Controles Globales -->
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs mb-6">
+                <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                    <div>
+                        <div class="flex items-center gap-2.5">
+                            <div class="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-base shadow-2xs border border-indigo-100">
+                                <i class="fas fa-shapes"></i>
+                            </div>
+                            <div>
+                                <h2 class="text-base font-bold text-slate-900">Matriz de Aplicaciones del Hub</h2>
+                                <p class="text-xs text-slate-500">Configuración visual de visibilidad y accesos por <strong>Sector ➔ Subsector ➔ Rol</strong> para el Centralizador Hub.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap items-center gap-2.5">
+                        <!-- Buscador en tiempo real -->
+                        <div class="relative w-full sm:w-64">
+                            <i class="fas fa-search absolute left-3 top-2.5 text-slate-400 text-xs"></i>
+                            <input type="text" id="buscadorMatrizHub" oninput="filtrarMatrizHubEnVivo(this.value)" placeholder="Buscar por rol, sector, app..." 
+                                   class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
+                        </div>
+
+                        <!-- Botón Copiar Accesos -->
+                        <button type="button" onclick="abrirModalCopiarPermisosHub()" 
+                                class="px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-xl border border-indigo-200 transition flex items-center gap-1.5 shadow-2xs">
+                            <i class="fas fa-copy"></i> Copiar Accesos entre Roles
+                        </button>
+
+                        <!-- Expandir / Colapsar todos -->
+                        <button type="button" onclick="toggleTodosSectoresHub()" id="btnToggleTodosSectores" 
+                                class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl border border-slate-200 transition flex items-center gap-1.5">
+                            <i class="fas fa-layer-group"></i> <span id="lblToggleTodosSectores">Colapsar todos</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Listado Jerárquico: Sector -> Subsector -> Roles -->
+            <?php if(empty($matrizEstructuraHub)): ?>
+                <div class="bg-white p-12 text-center rounded-2xl border border-slate-200 text-slate-400">
+                    <i class="fas fa-sitemap text-3xl mb-2 text-slate-300"></i>
+                    <p class="text-sm">No se encontraron sectores o roles configurados en la base de datos.</p>
+                </div>
+            <?php else: ?>
+                <div class="space-y-6" id="contenedorMatrizHub">
+                    <?php foreach($matrizEstructuraHub as $s): ?>
+                        <?php 
+                            $totalRolesSector = 0;
+                            foreach($s['subsectores'] as $sub) { $totalRolesSector += count($sub['roles']); }
+                        ?>
+                        <div class="sector-hub-bloque bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden transition" data-sector-id="<?= $s['id'] ?>">
+                            <!-- Cabecera del Sector -->
+                            <div class="p-4 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between cursor-pointer select-none" onclick="toggleSectorHub(<?= $s['id'] ?>)">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center text-sm shadow-2xs">
+                                        <i class="fas fa-folder-tree"></i>
+                                    </div>
+                                    <div>
+                                        <div class="flex items-center gap-2">
+                                            <h3 class="text-sm font-bold text-slate-900"><?= htmlspecialchars($s['nombre']) ?></h3>
+                                            <span class="text-[10px] font-mono text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200 font-semibold"><?= htmlspecialchars($s['codigo']) ?></span>
+                                        </div>
+                                        <p class="text-[11px] text-slate-500"><?= count($s['subsectores']) ?> subsectores · <?= $totalRolesSector ?> roles · <?= $s['cant_usuarios'] ?> usuarios</p>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-3">
+                                    <span class="text-xs text-slate-400 font-medium hidden sm:inline">Click para colapsar/expandir</span>
+                                    <i class="fas fa-chevron-down text-slate-400 transition-transform duration-200" id="chevronSector_<?= $s['id'] ?>"></i>
+                                </div>
+                            </div>
+
+                            <!-- Contenido del Sector: Subsectores y Roles -->
+                            <div class="p-5 space-y-6 sector-hub-contenido" id="contenidoSector_<?= $s['id'] ?>">
+                                <?php if(empty($s['subsectores'])): ?>
+                                    <p class="text-xs text-slate-400 italic py-2">No hay subsectores en este sector.</p>
+                                <?php else: ?>
+                                    <?php foreach($s['subsectores'] as $sub): ?>
+                                        <div class="subsector-hub-bloque border border-slate-200/90 rounded-xl p-4 bg-slate-50/30">
+                                            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 mb-4 border-b border-slate-200">
+                                                <div class="flex items-center gap-2">
+                                                    <span class="w-2 h-2 rounded-full bg-indigo-500"></span>
+                                                    <h4 class="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                                                        <?= htmlspecialchars($sub['nombre']) ?>
+                                                    </h4>
+                                                    <span class="text-[10px] text-slate-400 font-mono">(<?= htmlspecialchars($sub['codigo']) ?>)</span>
+                                                    <span class="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-semibold">
+                                                        <?= count($sub['roles']) ?> <?= count($sub['roles']) === 1 ? 'rol' : 'roles' ?>
+                                                    </span>
+                                                </div>
+
+                                                <?php if(!empty($sub['roles'])): ?>
+                                                    <!-- Acciones rápidas para todo el subsector -->
+                                                    <div class="flex items-center gap-2">
+                                                        <span class="text-[11px] text-slate-400 mr-1">Aplicar a todos:</span>
+                                                        <button type="button" onclick="aplicarTodosRolesSubsector(<?= $sub['id'] ?>, true)" class="px-2 py-1 bg-white hover:bg-slate-100 text-indigo-700 text-[11px] font-semibold rounded-lg border border-slate-200 transition">
+                                                            Habilitar Todas
+                                                        </button>
+                                                        <button type="button" onclick="aplicarTodosRolesSubsector(<?= $sub['id'] ?>, false)" class="px-2 py-1 bg-white hover:bg-slate-100 text-slate-600 text-[11px] font-semibold rounded-lg border border-slate-200 transition">
+                                                            Solo NODO
+                                                        </button>
+                                                    </div>
+                                                <?php endif; ?>
+                                            </div>
+
+                                            <?php if(empty($sub['roles'])): ?>
+                                                <p class="text-xs text-slate-400 italic py-2">No hay roles asociados a este subsector.</p>
+                                            <?php else: ?>
+                                                <div class="space-y-4">
+                                                    <?php foreach($sub['roles'] as $rol): ?>
+                                                        <?php 
+                                                            $permisosAsignados = $rol['permisos_hub'] ?? [];
+                                                            $cantActivas = count($permisosAsignados);
+                                                            $totalApps = count($modulosHub);
+                                                            $searchTerms = strtolower($s['nombre'] . ' ' . $sub['nombre'] . ' ' . $rol['nombre'] . ' ' . $rol['codigo']);
+                                                        ?>
+                                                        <div class="rol-hub-card bg-white border border-slate-200 rounded-xl p-4 shadow-2xs hover:border-indigo-200 transition" 
+                                                             data-search="<?= htmlspecialchars($searchTerms) ?>" 
+                                                             data-rol-id="<?= $rol['id'] ?>">
+                                                            
+                                                            <!-- Encabezado de la Tarjeta del Rol -->
+                                                            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                                                                <div>
+                                                                    <div class="flex items-center gap-2 flex-wrap">
+                                                                        <h5 class="text-xs font-extrabold text-slate-900 flex items-center gap-1.5">
+                                                                            <i class="fas fa-user-shield text-indigo-600"></i> <?= htmlspecialchars($rol['nombre']) ?>
+                                                                        </h5>
+                                                                        <span class="text-[10px] font-mono text-slate-600 bg-slate-100 px-2 py-0.5 rounded font-bold"><?= htmlspecialchars($rol['codigo']) ?></span>
+                                                                        <?php if($rol['es_admin']): ?>
+                                                                            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">Admin Total</span>
+                                                                        <?php endif; ?>
+                                                                        <span class="text-[10px] text-slate-400 font-medium">
+                                                                            <i class="fas fa-users mr-1"></i><?= $rol['cant_usuarios'] ?> usuarios
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div class="flex items-center gap-2 shrink-0">
+                                                                    <!-- Badge Contador de Apps -->
+                                                                    <span id="badgeRolApps_<?= $rol['id'] ?>" class="px-2.5 py-1 rounded-lg text-xs font-bold <?= $cantActivas > 0 ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' : 'bg-slate-100 text-slate-500 border border-slate-200' ?>">
+                                                                        <span class="count-val"><?= $cantActivas ?></span> / <?= $totalApps ?> apps activas
+                                                                    </span>
+
+                                                                    <!-- Botones de Acción Rápida por Rol -->
+                                                                    <button type="button" onclick="marcarTodasAppsRol(<?= $rol['id'] ?>, true)" 
+                                                                            title="Habilitar todas las aplicaciones" 
+                                                                            class="p-1.5 bg-slate-50 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 rounded-lg border border-slate-200 text-xs transition">
+                                                                        <i class="fas fa-check-double"></i>
+                                                                    </button>
+                                                                    <button type="button" onclick="marcarTodasAppsRol(<?= $rol['id'] ?>, false)" 
+                                                                            title="Desmarcar todas las aplicaciones" 
+                                                                            class="p-1.5 bg-slate-50 hover:bg-rose-50 text-slate-600 hover:text-rose-700 rounded-lg border border-slate-200 text-xs transition">
+                                                                        <i class="fas fa-ban"></i>
+                                                                    </button>
+                                                                    <button type="button" onclick="abrirModalCopiarPermisosHub(<?= $rol['id'] ?>)" 
+                                                                            title="Copiar accesos de este rol a otros" 
+                                                                            class="p-1.5 bg-slate-50 hover:bg-indigo-50 text-slate-600 hover:text-indigo-700 rounded-lg border border-slate-200 text-xs transition">
+                                                                        <i class="fas fa-copy"></i>
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+
+                                                            <!-- Grid de Aplicaciones del Hub para este Rol -->
+                                                            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2.5 pt-3.5">
+                                                                <?php foreach($modulosHub as $app): ?>
+                                                                    <?php 
+                                                                        $pClave = $app['permiso_clave'];
+                                                                        $pId = (int)$app['permiso_id'];
+                                                                        $estaActivo = isset($permisosAsignados[$pClave]) || ($rol['es_admin'] && $pClave === 'hub.app.nodo');
+                                                                        $tieneSubmodulos = !empty($app['cant_submodulos']) && (int)$app['cant_submodulos'] > 0;
+                                                                    ?>
+                                                                    <div class="app-hub-item flex items-center justify-between p-2.5 rounded-xl border transition <?= $estaActivo ? 'bg-indigo-50/40 border-indigo-200' : 'bg-slate-50/60 border-slate-200/80 hover:border-slate-300' ?>" id="itemApp_<?= $rol['id'] ?>_<?= $pId ?>">
+                                                                        <div class="flex items-center gap-2.5 min-w-0 pr-2">
+                                                                            <div class="w-8 h-8 rounded-lg flex items-center justify-center text-white shrink-0 text-xs shadow-2xs" 
+                                                                                 style="background: <?= htmlspecialchars($app['color'] ?: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)') ?>;">
+                                                                                <i class="fa-solid <?= htmlspecialchars($app['icono'] ?: 'fa-cube') ?>"></i>
+                                                                            </div>
+                                                                            <div class="min-w-0">
+                                                                                <div class="text-xs font-bold text-slate-800 truncate" title="<?= htmlspecialchars($app['nombre']) ?>">
+                                                                                    <?= htmlspecialchars($app['nombre']) ?>
+                                                                                </div>
+                                                                                <?php if($tieneSubmodulos): ?>
+                                                                                    <button type="button" 
+                                                                                            onclick="abrirModalSubmodulos(<?= $rol['id'] ?>, <?= $app['id'] ?>, '<?= htmlspecialchars(addslashes($rol['nombre'])) ?>', '<?= htmlspecialchars(addslashes($app['nombre'])) ?>')" 
+                                                                                            class="inline-flex items-center gap-1 text-[10px] text-indigo-600 hover:text-indigo-800 font-semibold hover:underline mt-0.5" 
+                                                                                            title="Configurar submódulos y menús internos">
+                                                                                        <i class="fas fa-sliders text-[9px]"></i> Configurar menús (<?= $app['cant_submodulos'] ?>)
+                                                                                    </button>
+                                                                                <?php else: ?>
+                                                                                    <div class="text-[10px] text-slate-400 font-mono truncate" title="<?= htmlspecialchars($app['ruta_url']) ?>">
+                                                                                        <?= htmlspecialchars($app['ruta_url']) ?>
+                                                                                    </div>
+                                                                                <?php endif; ?>
+                                                                            </div>
+                                                                        </div>
+
+                                                                        <!-- Toggle Switch Switcher -->
+                                                                        <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                                                                            <input type="checkbox" 
+                                                                                   class="sr-only peer switch-hub-permiso" 
+                                                                                   data-rol-id="<?= $rol['id'] ?>" 
+                                                                                   data-modulo-id="<?= $app['id'] ?>"
+                                                                                   data-modulo-nombre="<?= htmlspecialchars($app['nombre']) ?>"
+                                                                                   data-rol-nombre="<?= htmlspecialchars($rol['nombre']) ?>"
+                                                                                   data-tiene-submodulos="<?= $tieneSubmodulos ? '1' : '0' ?>"
+                                                                                   data-permiso-id="<?= $pId ?>" 
+                                                                                   data-permiso-clave="<?= htmlspecialchars($pClave) ?>"
+                                                                                   <?= $estaActivo ? 'checked' : '' ?> 
+                                                                                   onchange="toggleHubPermiso(this, <?= $rol['id'] ?>, <?= $pId ?>)">
+                                                                            <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                                                                        </label>
+                                                                    </div>
+                                                                <?php endforeach; ?>
+                                                            </div>
+
+                                                        </div>
+                                                    <?php endforeach; ?>
+                                                </div>
+                                            <?php endif; ?>
+                                        </div>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+        <?php endif; ?>
+
+    </main>
+
+    <!-- Modal Configurar Submódulos y Accesos Internos de un Centralizador -->
+    <div id="modalSubmodulosCentralizador" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4">
+        <div class="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full p-6 shadow-xl max-h-[90vh] flex flex-col">
+            <!-- Cabecera del Modal -->
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100 mb-3 shrink-0">
+                <div class="flex items-center gap-2.5">
+                    <div id="submodModalIconBox" class="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center text-sm shadow-2xs">
+                        <i class="fas fa-sliders"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-bold text-slate-900 flex items-center gap-1.5" id="submodModalTitulo">
+                            Accesos Internos: <span id="submodModalModNombre" class="text-indigo-600">Centralizador</span>
+                        </h3>
+                        <p class="text-xs text-slate-500">
+                            Rol: <strong id="submodModalRolNombre" class="text-slate-800">Nombre Rol</strong> · Seleccioná las aplicaciones permitidas
+                        </p>
+                    </div>
+                </div>
+                <button type="button" onclick="cerrarModal('modalSubmodulosCentralizador')" class="text-slate-400 hover:text-slate-600 text-xl font-bold">&times;</button>
+            </div>
+
+            <!-- Barra de Controles y Buscador del Modal -->
+            <div class="flex flex-wrap items-center justify-between gap-2.5 pb-3 border-b border-slate-100 mb-3 shrink-0">
+                <div class="relative w-full sm:w-64">
+                    <i class="fas fa-search absolute left-3 top-2.5 text-slate-400 text-xs"></i>
+                    <input type="text" id="buscadorSubmodulos" oninput="filtrarSubmodulosEnModal(this.value)" placeholder="Buscar aplicación o menú..." 
+                           class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                </div>
+                <div class="flex items-center gap-2">
+                    <span id="submodModalContador" class="text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-lg">
+                        0 / 0 habilitadas
+                    </span>
+                    <button type="button" onclick="toggleTodosSubmodulos(true)" class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition">
+                        Marcar Todo
+                    </button>
+                    <button type="button" onclick="toggleTodosSubmodulos(false)" class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition">
+                        Desmarcar Todo
+                    </button>
+                </div>
+            </div>
+
+            <!-- Contenido Scrolleable con Secciones y Checkboxes -->
+            <div class="overflow-y-auto flex-1 pr-1 space-y-4" id="submodModalContenido">
+                <div class="py-12 text-center text-slate-400">
+                    <i class="fas fa-spinner fa-spin text-2xl text-indigo-500 mb-2 block"></i>
+                    Cargando menú y aplicaciones internas...
+                </div>
+            </div>
+
+            <!-- Footer del Modal -->
+            <div class="flex justify-end space-x-2 pt-3 border-t border-slate-100 mt-3 shrink-0">
+                <button type="button" onclick="cerrarModal('modalSubmodulosCentralizador')" class="px-4 py-2 text-xs font-medium text-slate-500 hover:text-slate-800 transition">
+                    Cancelar
+                </button>
+                <button type="button" onclick="guardarSubmodulosCentralizador()" id="btnGuardarSubmodulos" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition shadow-xs flex items-center gap-1.5">
+                    <i class="fas fa-check"></i> Guardar Accesos Internos
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Copiar Permisos Hub entre Roles -->
+    <div id="modalCopiarPermisosHub" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4">
+        <div class="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+                <h3 class="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <i class="fas fa-copy text-indigo-600"></i> Replicar Accesos Hub entre Roles
+                </h3>
+                <button type="button" onclick="cerrarModal('modalCopiarPermisosHub')" class="text-slate-400 hover:text-slate-600 text-lg">&times;</button>
+            </div>
+            
+            <form id="formCopiarPermisosHub" onsubmit="ejecutarCopiaPermisosHub(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">1. Rol Modelo (Origen de los accesos) *</label>
+                    <select id="copiaRolOrigen" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                        <option value="">-- Seleccionar Rol Origen --</option>
+                        <?php foreach($roles as $r): ?>
+                            <option value="<?= $r['id'] ?>"><?= htmlspecialchars($r['nombre']) ?> (<?= htmlspecialchars($r['codigo']) ?>) - <?= htmlspecialchars($r['sector_nombre'] ?: 'General') ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="block text-xs font-bold text-slate-700">2. Roles Destino a Actualizar *</label>
+                        <button type="button" onclick="toggleTodosRolesDestino()" class="text-[11px] text-indigo-600 font-semibold hover:underline">
+                            Seleccionar Todos
+                        </button>
+                    </div>
+                    <div class="max-h-56 overflow-y-auto border border-slate-200 rounded-xl p-3 bg-slate-50/50 space-y-1.5" id="listaRolesDestino">
+                        <?php foreach($roles as $r): ?>
+                            <label class="flex items-center p-2 rounded-lg bg-white border border-slate-200 hover:border-indigo-300 cursor-pointer text-xs">
+                                <input type="checkbox" name="roles_destino[]" value="<?= $r['id'] ?>" class="rounded text-indigo-600 focus:ring-indigo-500 chk-rol-destino">
+                                <span class="ml-2 font-semibold text-slate-800"><?= htmlspecialchars($r['nombre']) ?></span>
+                                <span class="ml-1 text-[10px] text-slate-400 font-mono">(<?= htmlspecialchars($r['codigo']) ?>)</span>
+                                <span class="ml-auto text-[10px] text-slate-500"><?= htmlspecialchars($r['subsector_nombre'] ?: 'General') ?></span>
+                            </label>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+
+                <div class="flex justify-end space-x-2 pt-3 border-t border-slate-100">
+                    <button type="button" onclick="cerrarModal('modalCopiarPermisosHub')" class="px-4 py-2 text-xs font-medium text-slate-500 hover:text-slate-800 transition">Cancelar</button>
+                    <button type="submit" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition shadow-xs">
+                        <i class="fas fa-check mr-1.5"></i> Replicar Accesos Ahora
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Confirmar Marcar Todo el Filtro como OK (Custom HTML Tailwind Modal) -->
+    <div id="modalConfirmarFiltroOK" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4">
+        <div class="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 shadow-xl transform transition-all">
+            <div class="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mb-4 mx-auto border border-emerald-100">
+                <i class="fas fa-check-double text-xl"></i>
+            </div>
+            <h3 class="text-base font-bold text-slate-900 text-center mb-1">
+                ¿Marcar Todo el Filtro como OK?
+            </h3>
+            <p class="text-xs text-slate-500 text-center mb-4 leading-relaxed">
+                Estás por marcar como <strong class="text-emerald-700 font-bold">VALIDADOS OK</strong> a los <strong id="modalFiltroCantText" class="text-slate-900 font-bold text-sm">0</strong> usuarios de este filtro actual (en todas las páginas).
+            </p>
+
+            <div class="bg-slate-50 border border-slate-200/80 rounded-xl p-3 mb-5 text-[11px] text-slate-600 space-y-1.5">
+                <div class="flex items-center justify-between">
+                    <span class="text-slate-400">Categoría aplicada:</span>
+                    <span id="modalFiltroCatText" class="font-bold text-slate-800 font-mono">Todas</span>
+                </div>
+                <div class="flex items-center justify-between">
+                    <span class="text-slate-400">Estado actual:</span>
+                    <span id="modalFiltroEstadoText" class="font-bold text-slate-800 font-mono">Todos</span>
+                </div>
+                <div class="flex items-center justify-between">
+                    <span class="text-slate-400">Término de búsqueda:</span>
+                    <span id="modalFiltroQText" class="font-bold text-slate-800 font-mono">Ninguno</span>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2.5">
+                <button type="button" onclick="cerrarModal('modalConfirmarFiltroOK')" class="w-full py-2.5 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition cursor-pointer">
+                    Cancelar
+                </button>
+                <button type="button" id="btnEjecutarFiltroOK" onclick="ejecutarMarcarTodoElFiltroComoOK()" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer">
+                    <i class="fas fa-check-circle"></i> Sí, Marcar Todos OK
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Editar Nota / Observación de Relevamiento -->
+    <div id="modalObsRelev" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4">
+        <div class="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-6 shadow-xl">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-200 mb-4">
+                <h3 class="text-sm font-bold text-slate-900 flex items-center">
+                    <i class="fas fa-clipboard-check text-indigo-600 mr-2"></i> Auditoría & Notas de Relevamiento
+                </h3>
+                <button type="button" onclick="cerrarModal('modalObsRelev')" class="text-slate-400 hover:text-slate-600 text-xl font-bold">&times;</button>
+            </div>
+            <p class="text-xs text-slate-500 mb-4">Usuario: <span id="modalObsUsername" class="text-slate-900 font-mono font-bold"></span></p>
+            
+            <form method="POST" id="formObsRelev">
+                <input type="hidden" name="action" value="guardar_obs_relevamiento">
+                <input type="hidden" name="user_id" id="modalObsUserId">
+                
+                <div class="mb-4">
+                    <label class="block text-xs font-semibold text-slate-700 mb-1.5">Estado del Relevamiento</label>
+                    <select name="estado" id="modalObsEstado" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                        <option value="OK">✅ Validado OK (Probado & Funcional)</option>
+                        <option value="OBSERVADO">⚠️ Con Observaciones (Requiere Ajuste)</option>
+                        <option value="PENDIENTE">⏳ Pendiente de Relevamiento</option>
+                        <option value="DESCARTADO">🚫 Descartado / No Aplica</option>
+                    </select>
+                </div>
+
+                <div class="mb-5">
+                    <label class="block text-xs font-semibold text-slate-700 mb-1.5">Observaciones / Notas Técnicas</label>
+                    <textarea name="obs" id="modalObsTexto" rows="3" placeholder="Ej: Redirección probada ok, faltaba asociar sucursal 40, credencial validada..." 
+                              class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"></textarea>
+                </div>
+
+                <div class="flex justify-end space-x-2 pt-2 border-t border-slate-200">
+                    <button type="button" onclick="cerrarModal('modalObsRelev')" class="px-4 py-2 text-xs font-medium text-slate-500 hover:text-slate-800 transition">Cancelar</button>
+                    <button type="button" onclick="guardarObsRelevAjax()" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition shadow-xs">
+                        Guardar Auditoría
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Editar Permisos por Rol (Matriz N a N) -->
+    <div id="modalPermisos" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4">
+        <div class="bg-white border border-slate-200 rounded-2xl max-w-3xl w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-200 mb-4">
+                <div>
+                    <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
+                        <i class="fas fa-sliders text-indigo-600"></i> Matriz de Permisos para el Rol: <span id="nombreRolModal" class="text-indigo-600 font-bold"></span>
+                    </h3>
+                    <p class="text-xs text-slate-500 mt-0.5">Marque las aplicaciones y acciones permitidas para este rol.</p>
+                </div>
+                <button type="button" onclick="cerrarModal('modalPermisos')" class="text-slate-400 hover:text-slate-600 text-xl font-bold">&times;</button>
+            </div>
+
+            <form method="POST" id="formPermisosRol">
+                <input type="hidden" name="action" value="guardar_permisos_rol">
+                <input type="hidden" name="rol_id" id="permisosRolId">
+
+                <div class="space-y-4 mb-6">
+                    <?php foreach($modulos as $mod): ?>
+                        <div class="app-card border border-slate-200 rounded-xl overflow-hidden bg-slate-50/50 shadow-xs">
+                            <div class="bg-slate-100/90 px-4 py-3 flex items-center justify-between border-b border-slate-200 cursor-pointer select-none hover:bg-slate-200/70 transition" onclick="toggleAppCollapse(this, event)">
+                                <div class="flex items-center space-x-2.5">
+                                    <div class="w-7 h-7 rounded-lg bg-indigo-600/10 text-indigo-600 flex items-center justify-center">
+                                        <i class="fas <?= htmlspecialchars($mod['icono'] ?: 'fa-cube') ?> text-xs"></i>
+                                    </div>
+                                    <div>
+                                        <span class="font-bold text-xs text-slate-900 block"><?= htmlspecialchars($mod['nombre']) ?></span>
+                                        <span class="text-[10px] text-slate-400 font-mono"><?= htmlspecialchars($mod['codigo']) ?></span>
+                                    </div>
+                                </div>
+                                <div class="flex items-center space-x-2">
+                                    <button type="button" onclick="event.stopPropagation(); toggleTodosApp(this)" class="text-[11px] text-indigo-600 font-semibold hover:underline bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs cursor-pointer">
+                                        Marcar / Desmarcar Toda la App
+                                    </button>
+                                    <div class="w-6 h-6 rounded-full bg-white border border-slate-200 text-slate-500 flex items-center justify-center text-xs transition-transform duration-200 app-chevron">
+                                        <i class="fas fa-chevron-down"></i>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Contenido de la app: cerrado por defecto -->
+                            <div class="app-content p-4 bg-white space-y-4 hidden">
+                                <?php if(empty($mod['submodulos'])): ?>
+                                    <p class="text-[11px] text-slate-400 italic">Sin permisos registrados para esta aplicación.</p>
+                                <?php else: ?>
+                                    <?php foreach($mod['submodulos'] as $subNombre => $permisosList): ?>
+                                        <div class="submodulo-card border border-slate-100 rounded-xl p-3 bg-slate-50/30">
+                                            <div class="flex items-center justify-between pb-2 mb-2 border-b border-slate-100">
+                                                <div class="flex items-center space-x-1.5">
+                                                    <i class="fas fa-layer-group text-slate-400 text-[10px]"></i>
+                                                    <span class="text-xs font-bold text-slate-800"><?= htmlspecialchars($subNombre) ?></span>
+                                                    <span class="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-medium"><?= count($permisosList) ?> acciones</span>
+                                                </div>
+                                                <button type="button" onclick="toggleTodosSubmodulo(this)" class="text-[10px] text-slate-500 hover:text-indigo-600 font-medium cursor-pointer">
+                                                    Marcar / Desmarcar Módulo
+                                                </button>
+                                            </div>
+                                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                                <?php foreach($permisosList as $p): ?>
+                                                    <label class="flex items-start p-2.5 rounded-lg border border-slate-100 hover:bg-indigo-50/30 hover:border-indigo-200 transition cursor-pointer bg-white">
+                                                        <input type="checkbox" name="permisos[]" value="<?= $p['id'] ?>" class="permiso-checkbox mt-0.5 rounded text-indigo-600 focus:ring-indigo-500">
+                                                        <div class="ml-2.5">
+                                                            <span class="block text-xs font-semibold text-slate-800"><?= htmlspecialchars($p['nombre']) ?></span>
+                                                            <span class="block text-[10px] font-mono text-indigo-600"><?= htmlspecialchars($p['clave']) ?></span>
+                                                            <?php if(!empty($p['descripcion'])): ?>
+                                                                <span class="block text-[10px] text-slate-400 mt-0.5"><?= htmlspecialchars($p['descripcion']) ?></span>
+                                                            <?php endif; ?>
+                                                        </div>
+                                                    </label>
+                                                <?php endforeach; ?>
+                                            </div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+
+                <div class="flex justify-end space-x-2 pt-3 border-t border-slate-200">
+                    <button type="button" onclick="cerrarModal('modalPermisos')" class="px-4 py-2 text-xs font-medium text-slate-500 hover:text-slate-800 transition">Cancelar</button>
+                    <button type="submit" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition shadow-xs">Guardar Permisos</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Editar Pass Directo -->
+    <div id="modalPass" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4">
+        <div class="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 shadow-xl">
+            <h3 class="text-sm font-bold text-slate-900 mb-1 flex items-center">
+                <i class="fas fa-key text-amber-500 mr-2"></i> Modificar Contraseña en SQL
+            </h3>
+            <p class="text-xs text-slate-500 mb-4">Usuario: <span id="modalUsername" class="text-slate-800 font-mono font-bold"></span></p>
+            <form method="POST">
+                <input type="hidden" name="action" value="cambiar_pass">
+                <input type="hidden" name="user_id" id="modalUserId">
+                
+                <div class="mb-4">
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Nueva Contraseña (Texto Visible SQL)</label>
+                    <input type="text" name="nueva_pass" id="modalNuevaPass" required 
+                           class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 font-mono font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                </div>
+
+                <div class="flex justify-end space-x-2 pt-2">
+                    <button type="button" onclick="cerrarModal('modalPass')" class="px-3.5 py-2 text-xs font-medium text-slate-500 hover:text-slate-800 transition">Cancelar</button>
+                    <button type="submit" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition shadow-xs">Guardar en SQL</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Confirmar Eliminación de Usuario -->
+    <div id="modalEliminarUsuario" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4">
+        <div class="bg-white border border-slate-200 rounded-2xl max-w-sm w-full p-6 shadow-xl">
+            <div class="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mb-4 mx-auto border border-rose-100">
+                <i class="fas fa-triangle-exclamation text-xl"></i>
+            </div>
+            <h3 class="text-base font-bold text-slate-900 text-center mb-1">
+                ¿Eliminar Usuario?
+            </h3>
+            <p class="text-xs text-slate-500 text-center mb-5">
+                Estás por eliminar a <span id="nombreUsuarioBorrar" class="font-bold text-slate-800 font-mono"></span> de la base de datos SQL. Esta acción no se puede deshacer.
+            </p>
+            <form method="POST">
+                <input type="hidden" name="action" value="eliminar_usuario">
+                <input type="hidden" name="user_id" id="borrarUserId">
+                <input type="hidden" name="username" id="borrarUsername">
+                
+                <div class="grid grid-cols-2 gap-2">
+                    <button type="button" onclick="cerrarModal('modalEliminarUsuario')" class="w-full py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition">
+                        Cancelar
+                    </button>
+                    <button type="submit" class="w-full py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-xl transition shadow-xs">
+                        Sí, Eliminar
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Crear / Editar Usuario Completo -->
+    <div id="modalUsuario" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4">
+        <div class="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
+            <h3 class="text-base font-bold text-slate-900 mb-1 flex items-center" id="tituloModalUsuario">
+                <i class="fas fa-user-plus text-indigo-600 mr-2"></i> Nuevo Usuario
+            </h3>
+            <p class="text-xs text-slate-500 mb-4">Configuración de datos de acceso, categoría, sector y rol.</p>
+            
+            <form method="POST" class="space-y-4">
+                <input type="hidden" name="action" value="guardar_usuario">
+                <input type="hidden" name="user_id" id="formUserId" value="0">
+
+                <!-- Selector de Categoría de Usuario -->
+                <div class="p-3.5 bg-slate-100/90 rounded-2xl border border-slate-200">
+                    <label class="block text-xs font-bold text-slate-700 mb-2">Categoría del Usuario / Destino *</label>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                        <label class="flex items-center p-2.5 bg-white border border-slate-200 rounded-xl cursor-pointer hover:border-emerald-500 transition has-[:checked]:border-emerald-600 has-[:checked]:bg-emerald-50/60 shadow-2xs">
+                            <input type="radio" name="categoria_usuario" id="catPersonal" value="PERSONAL" checked onchange="toggleCategoria()" class="text-emerald-600 focus:ring-emerald-500">
+                            <div class="ml-2">
+                                <span class="block text-xs font-bold text-slate-900">👤 Personal</span>
+                                <span class="block text-[10px] text-slate-500">Staff interno</span>
+                            </div>
+                        </label>
+                        <label class="flex items-center p-2.5 bg-white border border-slate-200 rounded-xl cursor-pointer hover:border-blue-500 transition has-[:checked]:border-blue-600 has-[:checked]:bg-blue-50/60 shadow-2xs">
+                            <input type="radio" name="categoria_usuario" id="catLocal" value="LOCAL" onchange="toggleCategoria()" class="text-blue-600 focus:ring-blue-500">
+                            <div class="ml-2">
+                                <span class="block text-xs font-bold text-slate-900">🏪 Local</span>
+                                <span class="block text-[10px] text-slate-500">Propio / Franquicia</span>
+                            </div>
+                        </label>
+                        <label class="flex items-center p-2.5 bg-white border border-slate-200 rounded-xl cursor-pointer hover:border-teal-500 transition has-[:checked]:border-teal-600 has-[:checked]:bg-teal-50/60 shadow-2xs">
+                            <input type="radio" name="categoria_usuario" id="catMayorista" value="MAYORISTA" onchange="toggleCategoria()" class="text-teal-600 focus:ring-teal-500">
+                            <div class="ml-2">
+                                <span class="block text-xs font-bold text-slate-900">📦 Mayorista</span>
+                                <span class="block text-[10px] text-slate-500">Cliente B2B</span>
+                            </div>
+                        </label>
+                        <label class="flex items-center p-2.5 bg-white border border-slate-200 rounded-xl cursor-pointer hover:border-amber-500 transition has-[:checked]:border-amber-600 has-[:checked]:bg-amber-50/60 shadow-2xs">
+                            <input type="radio" name="categoria_usuario" id="catGrupo" value="GRUPO" onchange="toggleCategoria()" class="text-amber-600 focus:ring-amber-500">
+                            <div class="ml-2">
+                                <span class="block text-xs font-bold text-slate-900">🏢 Grupo</span>
+                                <span class="block text-[10px] text-slate-500">Franquiciado</span>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Username (Login) *</label>
+                        <input type="text" name="username" id="formUsername" required 
+                               class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Contraseña (Texto Plano SQL) *</label>
+                        <input type="text" name="password" id="formPassword" required 
+                               class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Nombre Completo / Razón Social / Descripción</label>
+                        <input type="text" name="nombre_completo" id="formNombre" 
+                               class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">Correo Electrónico</label>
+                        <input type="email" name="email" id="formEmail" 
+                               class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                    </div>
+                </div>
+
+                <!-- Bloque Alcance & Parámetros Operativos / Negocio / B2B -->
+                <div id="seccionAlcance" class="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                    <h4 class="text-xs font-bold text-slate-800 flex items-center justify-between">
+                        <span class="flex items-center gap-1.5"><i class="fas fa-sliders text-indigo-600"></i> Parámetros de Alcance & Negocio</span>
+                        <span id="badgeAlcance" class="text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-md font-semibold">Configuración de Alcance</span>
+                    </h4>
+                    <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                        <div>
+                            <label class="block text-[11px] font-semibold text-slate-700 mb-1">Tipo / Perfil</label>
+                            <input type="text" name="tipo" id="formTipo" placeholder="LOCAL_PROPIO" list="listaTiposDisponibles"
+                                   class="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                            <datalist id="listaTiposDisponibles">
+                                <option value="LOCAL_PROPIO">
+                                <option value="FRANQUICIA">
+                                <option value="FRANQUICIA_GA">
+                                <option value="MAYORISTA">
+                                <option value="GRUPO">
+                                <option value="LOCAL_PROPIO_UY">
+                                <option value="PERSONAL">
+                                <option value="SUPERVISION">
+                                <option value="GERENCIA">
+                                <option value="ADMINISTRACION">
+                                <option value="LOGISTICA">
+                                <option value="VENDEDOR">
+                            </datalist>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-semibold text-slate-700 mb-1" id="lblCodClient">Cód. Cliente / Cuenta</label>
+                            <input type="text" name="cod_client" id="formCodClient" placeholder="EJ: MAPEON" 
+                                   class="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-mono uppercase focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-semibold text-slate-700 mb-1" id="lblNroSucursal">Nro Sucursal / Depósito</label>
+                            <input type="number" name="nro_sucursal" id="formNroSucursal" placeholder="EJ: 200" 
+                                   class="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-semibold text-slate-700 mb-1" id="lblCodVendedor">
+                                <span class="text-teal-700 font-bold">Cód. Vendedor (Vend)</span>
+                            </label>
+                            <input type="text" name="cod_vendedor" id="formCodVendedor" placeholder="EJ: Z4" 
+                                   class="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-mono uppercase focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bloque Asignación Estructural (Sector, Subsector, Rol) -->
+                <div id="seccionEstructural" class="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                    <h4 class="text-xs font-bold text-slate-800 flex items-center justify-between">
+                        <span class="flex items-center gap-1.5"><i class="fas fa-sitemap text-indigo-600"></i> Asignación Estructural & Rol Operativo</span>
+                        <span class="text-[10px] bg-slate-200 text-slate-700 px-2 py-0.5 rounded-md font-semibold">Organización</span>
+                    </h4>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div>
+                            <label class="block text-[11px] font-semibold text-slate-600 mb-1">Sector</label>
+                            <select name="sector_id" id="formSectorId" onchange="filtrarSubsectoresPorSector()" class="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700">
+                                <option value="">Sin Sector</option>
+                                <?php foreach($sectores as $s): ?>
+                                    <option value="<?= $s['id'] ?>"><?= htmlspecialchars($s['nombre']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-semibold text-slate-600 mb-1">Subsector</label>
+                            <select name="subsector_id" id="formSubsectorId" onchange="filtrarRolesPorSubsector()" class="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700">
+                                <option value="">Sin Subsector</option>
+                                <?php foreach($subsectores as $sub): ?>
+                                    <option value="<?= $sub['id'] ?>" data-sector="<?= $sub['sector_id'] ?>"><?= htmlspecialchars($sub['nombre']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-semibold text-slate-600 mb-1">Rol Operativo</label>
+                            <select name="rol_id" id="formRolId" class="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700">
+                                <option value="">Sin Rol Asignado</option>
+                                <?php foreach($roles as $r): ?>
+                                    <option value="<?= $r['id'] ?>"><?= htmlspecialchars($r['nombre']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div id="bloqueLegajoSucursales" class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-200/60">
+                        <div>
+                            <label class="block text-[11px] font-semibold text-slate-700 mb-1">
+                                <i class="fas fa-id-card text-indigo-500 mr-1"></i> Nro de Legajo (Numérico)
+                            </label>
+                            <input type="number" name="legajo" id="formLegajo" placeholder="EJ: 12450" 
+                                   class="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-semibold text-slate-700 mb-1">
+                                <i class="fas fa-store text-indigo-500 mr-1"></i> Sucursales Asignadas (NRO_SUCURS)
+                            </label>
+                            <input type="text" name="nro_sucurs" id="formNroSucurs" placeholder="EJ: 105, 106, 200" 
+                                   class="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                            <span class="text-[10px] text-slate-400">Podés ingresar múltiples sucursales separadas por coma</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex items-center pt-2">
+                    <input type="checkbox" name="activo" id="formActivo" value="1" checked class="rounded text-indigo-600 focus:ring-indigo-500">
+                    <label for="formActivo" class="ml-2 text-xs text-slate-700 font-semibold">Usuario Activo y Habilitado para Login</label>
+                </div>
+
+                <div class="flex justify-end space-x-2 pt-3 border-t border-slate-200">
+                    <button type="button" onclick="cerrarModal('modalUsuario')" class="px-4 py-2 text-xs font-medium text-slate-500 hover:text-slate-800 transition">Cancelar</button>
+                    <button type="submit" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition shadow-xs">Guardar Usuario</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Envío Rápido de Credenciales (WhatsApp / Email / Texto Plano) -->
+    <div id="modalEnvioRapido" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs hidden items-center justify-center z-50 p-4">
+        <div class="bg-white border border-slate-200 rounded-2xl max-w-xl w-full p-6 shadow-2xl animate-fade-in">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-200">
+                <div class="flex items-center space-x-2.5">
+                    <div class="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-sm shadow-xs">
+                        <i class="fas fa-paper-plane"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-bold text-slate-900" id="tituloEnvioRapido">Envío Rápido de Credenciales</h3>
+                        <p class="text-[11px] text-slate-500" id="subtituloEnvioRapido">Texto formateado para copiar y enviar de inmediato.</p>
+                    </div>
+                </div>
+                <button type="button" onclick="cerrarModal('modalEnvioRapido')" class="text-slate-400 hover:text-slate-600 text-lg">&times;</button>
+            </div>
+
+            <!-- Selector de Formato -->
+            <div class="mt-4 flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 space-x-1">
+                <button type="button" onclick="setFormatoEnvioRapido('whatsapp')" id="btnFormatoWhatsapp" class="flex-1 py-1.5 rounded-lg text-xs font-bold transition bg-white text-emerald-700 shadow-2xs flex items-center justify-center gap-1.5">
+                    <i class="fab fa-whatsapp text-emerald-600"></i> WhatsApp
+                </button>
+                <button type="button" onclick="setFormatoEnvioRapido('email')" id="btnFormatoEmail" class="flex-1 py-1.5 rounded-lg text-xs font-bold transition text-slate-600 hover:text-slate-900 flex items-center justify-center gap-1.5">
+                    <i class="fas fa-envelope text-indigo-600"></i> Formato Correo
+                </button>
+                <button type="button" onclick="setFormatoEnvioRapido('compacto')" id="btnFormatoCompacto" class="flex-1 py-1.5 rounded-lg text-xs font-bold transition text-slate-600 hover:text-slate-900 flex items-center justify-center gap-1.5">
+                    <i class="fas fa-align-left text-slate-500"></i> Simple
+                </button>
+            </div>
+
+            <!-- Previsualización del Texto Generado -->
+            <div class="mt-3.5">
+                <label class="block text-xs font-semibold text-slate-600 mb-1.5">
+                    Mensaje listo para enviar:
+                </label>
+                <textarea id="textoEnvioRapido" rows="10" readonly 
+                          class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 select-all leading-relaxed"></textarea>
+            </div>
+
+            <!-- Footer & Botones de Acción -->
+            <div class="mt-4 pt-3 border-t border-slate-200 flex items-center justify-between">
+                <span class="text-[11px] text-slate-400 flex items-center gap-1">
+                    <i class="fas fa-lock text-slate-400 text-xs"></i> Credencial segura
+                </span>
+                <div class="flex items-center space-x-2">
+                    <button type="button" onclick="cerrarModal('modalEnvioRapido')" class="px-4 py-2 text-xs font-medium text-slate-600 hover:text-slate-900 transition">
+                        Cerrar
+                    </button>
+                    <button type="button" onclick="copiarTextoEnvioRapido()" id="btnCopiarEnvioRapido" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl transition shadow-xs flex items-center gap-1.5 cursor-pointer">
+                        <i class="fas fa-copy"></i> Copiar Mensaje
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toastContainer" class="fixed bottom-5 right-5 z-50 flex flex-col space-y-2 pointer-events-none"></div>
+
+    <script>
+        const mapaPermisos = <?= json_encode($mapaPermisosPorRol) ?>;
+
+        // ==================== TOAST NOTIFICATIONS ====================
+        function showToast(mensaje, tipo = 'success') {
+            const container = document.getElementById('toastContainer');
+            if (!container) return;
+            const toast = document.createElement('div');
+            const bgClass = tipo === 'success' ? 'bg-slate-900 text-white border-emerald-500' : 'bg-rose-900 text-white border-rose-500';
+            const icon = tipo === 'success' ? 'fa-circle-check text-emerald-400' : 'fa-circle-exclamation text-rose-400';
+            
+            toast.className = `toast-notify flex items-center space-x-2 px-4 py-3 rounded-xl border shadow-xl text-xs font-semibold pointer-events-auto transform translate-y-2 opacity-0 ${bgClass}`;
+            toast.innerHTML = `<i class="fas ${icon}"></i> <span>${mensaje}</span>`;
+            
+            container.appendChild(toast);
+            
+            requestAnimationFrame(() => {
+                toast.classList.remove('translate-y-2', 'opacity-0');
+            });
+            
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        // ==================== COPIAR CREDENCIALES ====================
+        function copiarCredenciales(username, pass) {
+            const texto = `Usuario: ${username}\nPassword: ${pass}`;
+            navigator.clipboard.writeText(texto).then(() => {
+                showToast(`Credenciales de @${username} copiadas al portapapeles!`, 'success');
+            }).catch(() => {
+                const temp = document.createElement('textarea');
+                temp.value = texto;
+                document.body.appendChild(temp);
+                temp.select();
+                document.execCommand('copy');
+                document.body.removeChild(temp);
+                showToast(`Credenciales de @${username} copiadas!`, 'success');
+            });
+        }
+
+        // ==================== JS ENVÍO RÁPIDO DE CREDENCIALES ====================
+        let usuarioEnvioActual = null;
+        let formatoEnvioActual = 'whatsapp';
+        const listadoUsuariosFiltroActual = <?= json_encode(array_map(function($u) {
+            $destino = calcularDestinoLogin($u);
+            return [
+                'id' => $u['id'],
+                'username' => $u['username'],
+                'password' => $u['password'] ?: $u['password_plain'] ?: '',
+                'nombre_completo' => $u['nombre_completo'] ?: '',
+                'categoria_usuario' => $u['categoria_usuario'] ?: 'PERSONAL',
+                'sector_nombre' => $u['sector_nombre'] ?: '',
+                'subsector_nombre' => $u['subsector_nombre'] ?: '',
+                'rol_nombre' => $u['rol_nombre'] ?: '',
+                'tipo' => $u['tipo'] ?: '',
+                'cod_client' => $u['cod_client'] ?: '',
+                'nro_sucursal' => $u['nro_sucursal'] ?: '',
+                'nro_sucurs' => $u['nro_sucurs'] ?: '',
+                'legajo' => $u['legajo'] ?: '',
+                'cod_vendedor' => $u['cod_vendedor'] ?: '',
+                'destino_nombre' => $destino['nombre'],
+                'destino_url' => $destino['url']
+            ];
+        }, $usuarios)) ?>;
+
+        function abrirModalEnvioRapidoUsuario(u) {
+            usuarioEnvioActual = u;
+            document.getElementById('tituloEnvioRapido').textContent = 'Envío Rápido @' + u.username;
+            document.getElementById('subtituloEnvioRapido').textContent = (u.nombre_completo ? u.nombre_completo + ' • ' : '') + 'Credenciales listas para compartir';
+            generarTextoEnvioRapido();
+            abrirModal('modalEnvioRapido');
+        }
+
+        function abrirModalEnvioRapidoFiltro() {
+            usuarioEnvioActual = 'FILTRO';
+            document.getElementById('tituloEnvioRapido').textContent = 'Envío Rápido • ' + listadoUsuariosFiltroActual.length + ' Usuarios';
+            document.getElementById('subtituloEnvioRapido').textContent = 'Listado consolidado de credenciales para el filtro actual';
+            generarTextoEnvioRapido();
+            abrirModal('modalEnvioRapido');
+        }
+
+        function setFormatoEnvioRapido(formato) {
+            formatoEnvioActual = formato;
+            
+            const btnW = document.getElementById('btnFormatoWhatsapp');
+            const btnE = document.getElementById('btnFormatoEmail');
+            const btnC = document.getElementById('btnFormatoCompacto');
+            
+            [btnW, btnE, btnC].forEach(b => {
+                if (b) {
+                    b.className = 'flex-1 py-1.5 rounded-lg text-xs font-bold transition text-slate-600 hover:text-slate-900 flex items-center justify-center gap-1.5';
+                }
+            });
+
+            if (formato === 'whatsapp' && btnW) {
+                btnW.className = 'flex-1 py-1.5 rounded-lg text-xs font-bold transition bg-white text-emerald-700 shadow-2xs flex items-center justify-center gap-1.5';
+            } else if (formato === 'email' && btnE) {
+                btnE.className = 'flex-1 py-1.5 rounded-lg text-xs font-bold transition bg-white text-indigo-700 shadow-2xs flex items-center justify-center gap-1.5';
+            } else if (formato === 'compacto' && btnC) {
+                btnC.className = 'flex-1 py-1.5 rounded-lg text-xs font-bold transition bg-white text-slate-900 shadow-2xs flex items-center justify-center gap-1.5';
+            }
+
+            generarTextoEnvioRapido();
+        }
+
+        function generarTextoEnvioRapido() {
+            const txtArea = document.getElementById('textoEnvioRapido');
+            if (!txtArea) return;
+
+            if (usuarioEnvioActual === 'FILTRO') {
+                let texto = '';
+                if (formatoEnvioActual === 'whatsapp') {
+                    texto = `🔐 *RESUMEN DE CREDENCIALES - XL EXTRA LARGE*\n` +
+                            `📊 *Total de cuentas:* ${listadoUsuariosFiltroActual.length}\n\n`;
+                    listadoUsuariosFiltroActual.forEach((u, i) => {
+                        texto += `${i+1}. *${u.username}* | Pass: \`${u.password}\`\n`;
+                        texto += `   👤 ${u.nombre_completo || '-'}\n`;
+                        if (u.rol_nombre) texto += `   🛡️ Rol: ${u.rol_nombre}\n`;
+                        if (u.nro_sucurs) texto += `   📍 Sucs: ${u.nro_sucurs}\n`;
+                        if (u.cod_client) texto += `   🏢 Cliente/Suc: ${u.cod_client}\n`;
+                        texto += `   🌐 ${u.destino_url}\n\n`;
+                    });
+                } else if (formatoEnvioActual === 'email') {
+                    texto = `Estimado equipo,\n\nA continuación compartimos el listado de credenciales de acceso activas:\n\n`;
+                    listadoUsuariosFiltroActual.forEach((u, i) => {
+                        texto += `[${i+1}] Usuario: ${u.username}\n`;
+                        texto += `    Contraseña: ${u.password}\n`;
+                        texto += `    Nombre: ${u.nombre_completo || '-'}\n`;
+                        texto += `    Rol: ${u.rol_nombre || '-'}\n`;
+                        texto += `    Acceso: ${u.destino_nombre} (${u.destino_url})\n\n`;
+                    });
+                    texto += `Saludos cordiales,\nAdministración de Sistemas - XL Extra Large`;
+                } else {
+                    texto = `USUARIO\tCONTRASEÑA\tNOMBRE\tROL\tURL\n`;
+                    listadoUsuariosFiltroActual.forEach(u => {
+                        texto += `${u.username}\t${u.password}\t${u.nombre_completo}\t${u.rol_nombre}\t${u.destino_url}\n`;
+                    });
+                }
+                txtArea.value = texto;
+                return;
+            }
+
+            const u = usuarioEnvioActual;
+            if (!u) return;
+
+            const pass = u.password || u.password_plain || '';
+            const rol = u.rol_nombre || 'Personal / Usuario';
+            const nombre = u.nombre_completo || u.username;
+            
+            let portalNombre = 'Terminal Local / Lakers';
+            let portalUrl = 'https://app.xl.com.ar/sistemas/eliminaPedido.php';
+            const cat = (u.categoria_usuario || 'PERSONAL').toUpperCase();
+            const tipo = (u.tipo || '').toUpperCase();
+            const userUpper = (u.username || '').toUpperCase();
+
+            if (userUpper === 'FRANCOPERTUS' || rol.toUpperCase().includes('ADMIN') || rol.toUpperCase().includes('PROYECTOS')) {
+                portalNombre = 'Centralizador Hub (NODO / Identity)';
+                portalUrl = 'https://app.xl.com.ar/sistemas/hub/index.php';
+            } else if (tipo === 'GRUPO' || cat === 'GRUPO' || rol.toUpperCase().includes('GRUPO')) {
+                portalNombre = 'Portal Franquicias Grupo';
+                portalUrl = 'https://app.xl.com.ar/ppp/franquicias/grupo/index.php';
+            } else if (cat === 'MAYORISTA' || tipo === 'MAYORISTA' || (u.cod_vendedor && u.cod_vendedor !== '0') || rol.toUpperCase().includes('MAYORISTA')) {
+                portalNombre = 'Portal Clientes Mayoristas B2B';
+                portalUrl = 'https://app.xl.com.ar/sistemas/mayoristas/index.php';
+            } else if (tipo === 'SUPERVISION' || rol.toUpperCase().includes('SUPERVISOR')) {
+                portalNombre = 'Estadísticas Comerciales';
+                portalUrl = 'https://app.xl.com.ar/comercial/estadisticas/index.php';
+            } else if (tipo === 'GERENCIA' || rol.toUpperCase().includes('GERENCIA')) {
+                portalNombre = 'Portal Gerencia / PPP';
+                portalUrl = 'https://app.xl.com.ar/ppp/index.php';
+            } else if (cat === 'LOCAL') {
+                portalNombre = 'Terminal Local / Lakers';
+                portalUrl = 'https://app.xl.com.ar/sistemas/eliminaPedido.php';
+            }
+
+            let texto = '';
+            if (formatoEnvioActual === 'whatsapp') {
+                texto = `🔐 *DATOS DE ACCESO - XL EXTRA LARGE*\n\n` +
+                        `👤 *Usuario:* \`${u.username}\`\n` +
+                        `🔑 *Contraseña:* \`${pass}\`\n` +
+                        `🏢 *Nombre:* ${nombre}\n` +
+                        (rol ? `🛡️ *Rol:* ${rol}\n` : '') +
+                        (u.nro_sucurs ? `📍 *Sucursales Asignadas:* ${u.nro_sucurs}\n` : '') +
+                        (u.cod_client ? `📦 *Cliente / Sigla:* ${u.cod_client}\n` : '') +
+                        (u.cod_vendedor ? `🏷️ *Vendedor:* ${u.cod_vendedor}\n` : '') +
+                        `\n🌐 *Portal de Ingreso:* ${portalUrl}\n\n` +
+                        `⚠️ _Por favor, conserve estas credenciales en un lugar seguro._`;
+            } else if (formatoEnvioActual === 'email') {
+                texto = `Estimado/a ${nombre},\n\n` +
+                        `Le enviamos sus credenciales de acceso correspondientes al sistema corporativo de XL Extra Large:\n\n` +
+                        `• Nombre de Usuario: ${u.username}\n` +
+                        `• Contraseña: ${pass}\n` +
+                        (rol ? `• Rol Asignado: ${rol}\n` : '') +
+                        (u.nro_sucurs ? `• Sucursales Habilitadas: ${u.nro_sucurs}\n` : '') +
+                        `• Portal de Ingreso: ${portalNombre} (${portalUrl})\n\n` +
+                        `Para ingresar, acceda al enlace provisto e introduzca sus datos.\n\n` +
+                        `Saludos cordiales,\n` +
+                        `Administración de Sistemas - XL Extra Large`;
+            } else {
+                texto = `Usuario: ${u.username}\n` +
+                        `Password: ${pass}\n` +
+                        `Nombre: ${nombre}\n` +
+                        `Rol: ${rol}\n` +
+                        `Link: ${portalUrl}`;
+            }
+
+            txtArea.value = texto;
+        }
+
+        function copiarTextoEnvioRapido() {
+            const txtArea = document.getElementById('textoEnvioRapido');
+            if (!txtArea || !txtArea.value) return;
+
+            navigator.clipboard.writeText(txtArea.value).then(() => {
+                showToast('¡Mensaje de credenciales copiado al portapapeles!', 'success');
+                const btn = document.getElementById('btnCopiarEnvioRapido');
+                if (btn) {
+                    const orig = btn.innerHTML;
+                    btn.innerHTML = '<i class="fas fa-check"></i> ¡Copiado!';
+                    setTimeout(() => { btn.innerHTML = orig; }, 2000);
+                }
+            }).catch(() => {
+                txtArea.select();
+                document.execCommand('copy');
+                showToast('¡Mensaje copiado!', 'success');
+            });
+        }
+
+        // ==================== JS RELEVAMIENTO AJAX ====================
+        function cambiarEstadoRelevAjax(userId, estado, obs = '') {
+            const formData = new FormData();
+            formData.append('ajax', '1');
+            formData.append('action', 'actualizar_relevamiento');
+            formData.append('user_id', userId);
+            formData.append('estado', estado);
+            formData.append('obs', obs);
+
+            fetch(window.location.href, {
+                method: 'POST',
+                body: formData
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.ok) {
+                    actualizarFilaRelevamientoUI(userId, estado, obs);
+                    if (data.stats) {
+                        actualizarKPIsUI(data.stats);
+                    }
+                    showToast(`Usuario #${userId} marcado como ${estado}`, 'success');
+                } else {
+                    showToast('Error: ' + (data.error || 'No se pudo actualizar'), 'error');
+                }
+            })
+            .catch(err => {
+                showToast('Error de conexión con el servidor', 'error');
+            });
+        }
+
+        function actualizarFilaRelevamientoUI(userId, estado, obs) {
+            const btnGroup = document.getElementById('btn-group-estado-' + userId);
+            if (btnGroup) {
+                const isOk = (estado === 'OK');
+                const isObs = (estado === 'OBSERVADO');
+                const isPend = (estado === 'PENDIENTE');
+
+                btnGroup.innerHTML = `
+                    <button type="button" onclick="cambiarEstadoRelevAjax(${userId}, 'OK')" 
+                            title="Marcar como Probado y Funcional OK"
+                            class="px-2.5 py-1 rounded-lg text-[10px] font-bold transition ${isOk ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:text-emerald-700'}">
+                        <i class="fas fa-check mr-1"></i> OK
+                    </button>
+                    <button type="button" onclick="abrirModalObsRelev(${userId}, '', 'OBSERVADO', '${obs.replace(/'/g, "\\'")}')" 
+                            title="Marcar con Observación o Detalle a Ajustar"
+                            class="px-2.5 py-1 rounded-lg text-[10px] font-bold transition ${isObs ? 'bg-amber-500 text-white shadow-xs' : 'text-slate-600 hover:text-amber-700'}">
+                        <i class="fas fa-exclamation-triangle mr-1"></i> Obs
+                    </button>
+                    <button type="button" onclick="cambiarEstadoRelevAjax(${userId}, 'PENDIENTE')" 
+                            title="Volver a Pendiente"
+                            class="px-2 py-1 rounded-lg text-[10px] font-bold transition ${isPend ? 'bg-slate-300 text-slate-800' : 'text-slate-400 hover:text-slate-700'}">
+                        ⏳
+                    </button>
+                `;
+            }
+
+            if (obs !== '') {
+                const obsDiv = document.getElementById('obs-text-' + userId);
+                if (obsDiv) {
+                    obsDiv.textContent = obs;
+                    obsDiv.className = 'text-[11px] font-medium text-slate-700';
+                }
+            }
+        }
+
+        function actualizarKPIsUI(stats) {
+            const okEl = document.getElementById('kpiOkCount');
+            const obsEl = document.getElementById('kpiObsCount');
+            const pendEl = document.getElementById('kpiPendCount');
+            const auditEl = document.getElementById('kpiTotalAuditados');
+            const pctBadge = document.getElementById('kpiPorcentajeBadge');
+            const bar = document.getElementById('kpiProgressBar');
+            const headerBadge = document.getElementById('badgeHeaderRelev');
+
+            if (okEl) okEl.textContent = stats.ok;
+            if (obsEl) obsEl.textContent = stats.observado;
+            if (pendEl) pendEl.textContent = stats.pendiente;
+            
+            const auditados = stats.ok + stats.observado + stats.descartado;
+            if (auditEl) auditEl.innerHTML = `${auditados} <span class="text-sm font-semibold text-slate-400">/ ${stats.total}</span>`;
+            
+            const pct = stats.total > 0 ? ((auditados / stats.total) * 100).toFixed(1) : 0;
+            if (pctBadge) pctBadge.textContent = pct + '%';
+            if (bar) bar.style.width = pct + '%';
+            if (headerBadge) headerBadge.textContent = `${stats.ok}/${stats.total}`;
+        }
+
+        function abrirModalObsRelev(userId, username, estadoActual, obsActual) {
+            document.getElementById('modalObsUserId').value = userId;
+            if (username) {
+                document.getElementById('modalObsUsername').textContent = '@' + username;
+            }
+            document.getElementById('modalObsEstado').value = estadoActual || 'OK';
+            document.getElementById('modalObsTexto').value = obsActual || '';
+            abrirModal('modalObsRelev');
+        }
+
+        function guardarObsRelevAjax() {
+            const userId = document.getElementById('modalObsUserId').value;
+            const estado = document.getElementById('modalObsEstado').value;
+            const obs = document.getElementById('modalObsTexto').value;
+
+            cambiarEstadoRelevAjax(userId, estado, obs);
+            cerrarModal('modalObsRelev');
+        }
+
+        function toggleCheckMaster(master) {
+            const checks = document.querySelectorAll('.check-relev-item');
+            checks.forEach(c => c.checked = master.checked);
+            
+            const banner = document.getElementById('bannerSeleccionTotal');
+            if (banner) {
+                if (master.checked && checks.length > 0) {
+                    banner.classList.remove('hidden');
+                } else {
+                    banner.classList.add('hidden');
+                }
+            }
+        }
+
+        function actualizarEstadoMasterCheck() {
+            const checks = document.querySelectorAll('.check-relev-item');
+            const checked = document.querySelectorAll('.check-relev-item:checked');
+            const master = document.getElementById('checkMasterRelev');
+            const banner = document.getElementById('bannerSeleccionTotal');
+            
+            if (master) master.checked = (checks.length > 0 && checks.length === checked.length);
+            if (banner) {
+                if (checked.length === checks.length && checks.length > 0) {
+                    banner.classList.remove('hidden');
+                } else {
+                    banner.classList.add('hidden');
+                }
+            }
+        }
+
+        // ==================== MODAL CONFIRMAR FILTRO COMPLETO (SIN POPUPS NATIVOS) ====================
+        function abrirModalConfirmarFiltroOK(totalRegistros) {
+            const q = document.getElementById('inputBusquedaRel')?.value || '';
+            const estado = document.getElementById('selectEstadoRel')?.value || '';
+            const cat = document.getElementById('selectCatRel')?.value || '';
+
+            document.getElementById('modalFiltroCantText').textContent = totalRegistros;
+            document.getElementById('modalFiltroCatText').textContent = cat || 'Todas las Categorías';
+            document.getElementById('modalFiltroEstadoText').textContent = estado || 'Todos los Estados';
+            document.getElementById('modalFiltroQText').textContent = q || 'Ninguno';
+
+            abrirModal('modalConfirmarFiltroOK');
+        }
+
+        function ejecutarMarcarTodoElFiltroComoOK() {
+            const btn = document.getElementById('btnEjecutarFiltroOK');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Procesando...';
+            }
+
+            const q = document.getElementById('inputBusquedaRel')?.value || '';
+            const estado = document.getElementById('selectEstadoRel')?.value || '';
+            const cat = document.getElementById('selectCatRel')?.value || '';
+
+            const formData = new FormData();
+            formData.append('ajax', '1');
+            formData.append('action', 'marcar_filtro_relevamiento');
+            formData.append('q_rel', q);
+            formData.append('estado_rel', estado);
+            formData.append('cat_rel', cat);
+            formData.append('nuevo_estado', 'OK');
+
+            fetch(window.location.href, {
+                method: 'POST',
+                body: formData
+            })
+            .then(res => res.json())
+            .then(data => {
+                cerrarModal('modalConfirmarFiltroOK');
+                if (data.ok) {
+                    showToast(`¡Se marcaron ${data.afectados} usuarios como OK con éxito!`, 'success');
+                    if (data.stats) actualizarKPIsUI(data.stats);
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 800);
+                } else {
+                    showToast('Error: ' + (data.error || 'No se pudo procesar'), 'error');
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fas fa-check-circle"></i> Sí, Marcar Todos OK';
+                    }
+                }
+            })
+            .catch(() => {
+                cerrarModal('modalConfirmarFiltroOK');
+                showToast('Error de conexión con el servidor', 'error');
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-check-circle"></i> Sí, Marcar Todos OK';
+                }
+            });
+        }
+
+        function exportarChecklistCSV() {
+            const rows = document.querySelectorAll('#tablaCuerpoRelevamiento tr');
+            if (!rows.length) return;
+            
+            let csv = "ID,Usuario,Categoria,Nombre,Destino,Estado_Relevamiento,Observaciones\n";
+            rows.forEach(r => {
+                const cells = r.querySelectorAll('td');
+                if (cells.length >= 7) {
+                    const id = cells[0].querySelector('input')?.value || '';
+                    const user = cells[1].querySelector('span.font-bold')?.textContent.replace('@', '').trim() || '';
+                    const cat = cells[2].querySelector('span')?.textContent.trim() || '';
+                    const nombre = cells[3].textContent.trim().replace(/"/g, '""');
+                    const destino = cells[4].textContent.trim().replace(/"/g, '""');
+                    const estado = cells[5].textContent.includes('OK') ? 'OK' : (cells[5].textContent.includes('Obs') ? 'OBSERVADO' : 'PENDIENTE');
+                    const obs = cells[6].querySelector('div')?.textContent.trim().replace(/"/g, '""') || '';
+                    csv += `"${id}","${user}","${cat}","${nombre}","${destino}","${estado}","${obs}"\n`;
+                }
+            });
+
+            const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.setAttribute("download", "Relevamiento_Usuarios_XL_" + new Date().toISOString().slice(0,10) + ".csv");
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // ==================== MODAL PERMISOS & ROLES ====================
+        function toggleAppCollapse(header, event) {
+            const card = header.closest('.app-card');
+            if (!card) return;
+            const content = card.querySelector('.app-content');
+            const chevron = card.querySelector('.app-chevron i');
+            if (!content) return;
+
+            const isHidden = content.classList.contains('hidden');
+            if (isHidden) {
+                content.classList.remove('hidden');
+                if (chevron) {
+                    chevron.classList.remove('fa-chevron-down');
+                    chevron.classList.add('fa-chevron-up');
+                }
+            } else {
+                content.classList.add('hidden');
+                if (chevron) {
+                    chevron.classList.remove('fa-chevron-up');
+                    chevron.classList.add('fa-chevron-down');
+                }
+            }
+        }
+
+        function abrirModalPermisos(rolId, rolNombre, esAdmin) {
+            document.getElementById('permisosRolId').value = rolId;
+            document.getElementById('nombreRolModal').textContent = rolNombre + (esAdmin ? ' (Administrador Total)' : '');
+            
+            document.querySelectorAll('#modalPermisos .app-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('#modalPermisos .app-chevron i').forEach(el => {
+                el.classList.remove('fa-chevron-up');
+                el.classList.add('fa-chevron-down');
+            });
+
+            const checks = document.querySelectorAll('.permiso-checkbox');
+            const asignados = mapaPermisos[rolId] || [];
+
+            checks.forEach(c => {
+                c.checked = asignados.includes(parseInt(c.value));
+            });
+
+            abrirModal('modalPermisos');
+        }
+
+        function toggleTodosApp(btn) {
+            const card = btn.closest('.app-card');
+            if (!card) return;
+            const checkboxes = card.querySelectorAll('.permiso-checkbox');
+            const anyUnchecked = Array.from(checkboxes).some(c => !c.checked);
+            checkboxes.forEach(c => c.checked = anyUnchecked);
+        }
+
+        function toggleTodosSubmodulo(btn) {
+            const container = btn.closest('.submodulo-card');
+            if (!container) return;
+            const checkboxes = container.querySelectorAll('.permiso-checkbox');
+            const anyUnchecked = Array.from(checkboxes).some(c => !c.checked);
+            checkboxes.forEach(c => c.checked = anyUnchecked);
+        }
+
+        function toggleCategoria() {
+            const selectedRadio = document.querySelector('input[name="categoria_usuario"]:checked');
+            const cat = selectedRadio ? selectedRadio.value : 'PERSONAL';
+            
+            const badgeAlcance = document.getElementById('badgeAlcance');
+            const formTipo = document.getElementById('formTipo');
+            const lblCodClient = document.getElementById('lblCodClient');
+            const lblNroSucursal = document.getElementById('lblNroSucursal');
+            const lblCodVendedor = document.getElementById('lblCodVendedor');
+            const bloqueLegajoSucursales = document.getElementById('bloqueLegajoSucursales');
+
+            if (cat === 'PERSONAL') {
+                if (badgeAlcance) badgeAlcance.textContent = 'Configuración Personal';
+                if (lblCodClient) lblCodClient.textContent = 'Cód. Cliente (Opcional)';
+                if (lblNroSucursal) lblNroSucursal.textContent = 'Nro Sucursal Principal';
+                if (lblCodVendedor) lblCodVendedor.innerHTML = 'Cód. Vendedor (Opcional)';
+                if (bloqueLegajoSucursales) bloqueLegajoSucursales.classList.remove('hidden');
+                if (!formTipo.value || ['LOCAL_PROPIO', 'FRANQUICIA', 'MAYORISTA', 'GRUPO'].includes(formTipo.value)) {
+                    formTipo.value = 'PERSONAL';
+                }
+            } else if (cat === 'LOCAL') {
+                if (badgeAlcance) badgeAlcance.textContent = 'Configuración Local / Franquicia';
+                if (lblCodClient) lblCodClient.textContent = 'Cód. Cliente / Sigla Local';
+                if (lblNroSucursal) lblNroSucursal.textContent = 'Nro de Sucursal (NRO_SUCURSAL)';
+                if (lblCodVendedor) lblCodVendedor.innerHTML = 'Cód. Vendedor (Vend)';
+                if (bloqueLegajoSucursales) bloqueLegajoSucursales.classList.add('hidden');
+                if (!['LOCAL_PROPIO', 'FRANQUICIA', 'FRANQUICIA_GA', 'LOCAL_PROPIO_UY'].includes(formTipo.value)) {
+                    formTipo.value = 'LOCAL_PROPIO';
+                }
+            } else if (cat === 'MAYORISTA') {
+                if (badgeAlcance) badgeAlcance.textContent = 'Configuración Mayorista B2B';
+                if (lblCodClient) lblCodClient.textContent = 'Cód. Cliente B2B (COD_CLIENT)';
+                if (lblNroSucursal) lblNroSucursal.textContent = 'Nro Sucursal / Depósito (ej: 200)';
+                if (lblCodVendedor) lblCodVendedor.innerHTML = '<span class="text-teal-700 font-bold">Cód. Vendedor Asignado (Vend, ej: Z4)</span>';
+                if (bloqueLegajoSucursales) bloqueLegajoSucursales.classList.add('hidden');
+                if (!formTipo.value || ['LOCAL_PROPIO', 'FRANQUICIA', 'PERSONAL'].includes(formTipo.value)) {
+                    formTipo.value = 'MAYORISTA';
+                }
+            } else if (cat === 'GRUPO') {
+                if (badgeAlcance) badgeAlcance.textContent = 'Configuración Grupo Franquiciado';
+                if (lblCodClient) lblCodClient.textContent = 'Cód. Grupo / Cliente (ej: FRMPOU)';
+                if (lblNroSucursal) lblNroSucursal.textContent = 'Nro Sucursal (Opcional)';
+                if (lblCodVendedor) lblCodVendedor.innerHTML = 'Cód. Vendedor (Opcional)';
+                if (bloqueLegajoSucursales) bloqueLegajoSucursales.classList.add('hidden');
+                if (!formTipo.value || ['LOCAL_PROPIO', 'FRANQUICIA', 'PERSONAL'].includes(formTipo.value)) {
+                    formTipo.value = 'GRUPO';
+                }
+            }
+        }
+
+        // ==================== JS SECTORES ====================
+        function cargarEditarSector(s) {
+            document.getElementById('tituloFormSector').innerHTML = '<i class="fas fa-pencil text-indigo-600 mr-1.5"></i> Editar Sector';
+            document.getElementById('inputSectorId').value = s.id;
+            document.getElementById('inputSectorCodigo').value = s.codigo;
+            document.getElementById('inputSectorNombre').value = s.nombre;
+            document.getElementById('inputSectorDesc').value = s.descripcion || '';
+            document.getElementById('btnSubmitSector').textContent = 'Actualizar Sector';
+            document.getElementById('btnResetSector').classList.remove('hidden');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function resetFormSector() {
+            document.getElementById('tituloFormSector').innerHTML = '<i class="fas fa-folder-plus text-indigo-600 mr-1.5"></i> Nuevo Sector Principal';
+            document.getElementById('inputSectorId').value = '0';
+            document.getElementById('inputSectorCodigo').value = '';
+            document.getElementById('inputSectorNombre').value = '';
+            document.getElementById('inputSectorDesc').value = '';
+            document.getElementById('btnSubmitSector').textContent = 'Crear Sector';
+            document.getElementById('btnResetSector').classList.add('hidden');
+        }
+
+        // ==================== JS SUBSECTORES ====================
+        function cargarEditarSubsector(sub) {
+            document.getElementById('tituloFormSubsector').innerHTML = '<i class="fas fa-pencil text-purple-600 mr-1.5"></i> Editar Subsector';
+            document.getElementById('inputSubsectorId').value = sub.id;
+            document.getElementById('inputSubsectorPadre').value = sub.sector_id;
+            document.getElementById('inputSubsectorCodigo').value = sub.codigo;
+            document.getElementById('inputSubsectorNombre').value = sub.nombre;
+            document.getElementById('inputSubsectorDesc').value = sub.descripcion || '';
+            document.getElementById('btnSubmitSubsector').textContent = 'Actualizar Subsector';
+            document.getElementById('btnResetSubsector').classList.remove('hidden');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function resetFormSubsector() {
+            document.getElementById('tituloFormSubsector').innerHTML = '<i class="fas fa-diagram-project text-purple-600 mr-1.5"></i> Nuevo Subsector / Equipo';
+            document.getElementById('inputSubsectorId').value = '0';
+            document.getElementById('inputSubsectorPadre').value = '';
+            document.getElementById('inputSubsectorCodigo').value = '';
+            document.getElementById('inputSubsectorNombre').value = '';
+            document.getElementById('inputSubsectorDesc').value = '';
+            document.getElementById('btnSubmitSubsector').textContent = 'Crear Subsector';
+            document.getElementById('btnResetSubsector').classList.add('hidden');
+        }
+
+        // ==================== JS ROLES ====================
+        function cargarEditarRol(r) {
+            document.getElementById('tituloFormRol').innerHTML = '<i class="fas fa-pencil text-indigo-600 mr-1.5"></i> Editar Rol';
+            document.getElementById('inputRolId').value = r.id;
+            document.getElementById('inputRolSubsector').value = r.subsector_id || '';
+            document.getElementById('inputRolCodigo').value = r.codigo;
+            document.getElementById('inputRolNombre').value = r.nombre;
+            document.getElementById('inputRolDesc').value = r.descripcion || '';
+            document.getElementById('inputRolAdmin').checked = (r.es_admin == 1);
+            document.getElementById('btnSubmitRol').textContent = 'Actualizar Rol';
+            document.getElementById('btnResetRol').classList.remove('hidden');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function resetFormRol() {
+            document.getElementById('tituloFormRol').innerHTML = '<i class="fas fa-shield-cat text-indigo-600 mr-1.5"></i> Nuevo Rol';
+            document.getElementById('inputRolId').value = '0';
+            document.getElementById('inputRolSubsector').value = '';
+            document.getElementById('inputRolCodigo').value = '';
+            document.getElementById('inputRolNombre').value = '';
+            document.getElementById('inputRolDesc').value = '';
+            document.getElementById('inputRolAdmin').checked = false;
+            document.getElementById('btnSubmitRol').textContent = 'Guardar Rol';
+            document.getElementById('btnResetRol').classList.add('hidden');
+        }
+
+        function crearRolParaSubsector(subId) {
+            resetFormRol();
+            const selectSub = document.getElementById('inputRolSubsector');
+            if (selectSub) {
+                selectSub.value = subId;
+            }
+            const inputNombre = document.getElementById('inputRolNombre');
+            if (inputNombre) {
+                inputNombre.focus();
+            }
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function toggleSectorRoles(secSlug) {
+            const contenido = document.getElementById('contenidoSectorRoles_' + secSlug);
+            const chevron = document.getElementById('chevronSectorRoles_' + secSlug);
+            if (contenido) {
+                const isHidden = contenido.classList.contains('hidden');
+                contenido.classList.toggle('hidden');
+                if (chevron) {
+                    chevron.style.transform = isHidden ? 'rotate(0deg)' : 'rotate(-90deg)';
+                }
+            }
+        }
+
+        function toggleTodosSectoresRoles() {
+            const contenidos = document.querySelectorAll('.sector-roles-contenido');
+            const chevrons = document.querySelectorAll('.chevron-sector-roles');
+            const lbl = document.getElementById('lblToggleTodosRoles');
+            
+            // Si alguno está abierto, los colapsamos todos; sino, los expandimos
+            const algunAbierto = Array.from(contenidos).some(c => !c.classList.contains('hidden'));
+            
+            contenidos.forEach(c => {
+                if (algunAbierto) {
+                    c.classList.add('hidden');
+                } else {
+                    c.classList.remove('hidden');
+                }
+            });
+            
+            chevrons.forEach(ch => {
+                ch.style.transform = algunAbierto ? 'rotate(-90deg)' : 'rotate(0deg)';
+            });
+            
+            if (lbl) {
+                lbl.textContent = algunAbierto ? 'Expandir todos' : 'Colapsar todos';
+            }
+        }
+
+        function filtrarRolesEnVivo(val) {
+            const query = val.toLowerCase().trim();
+            const items = document.querySelectorAll('.item-rol-card');
+            const noResults = document.getElementById('sinResultadosRoles');
+            const contador = document.getElementById('contadorRolesVisibles');
+            let visibles = 0;
+
+            items.forEach(el => {
+                const searchData = el.getAttribute('data-search') || '';
+                if (!query || searchData.includes(query)) {
+                    el.classList.remove('hidden');
+                    visibles++;
+                } else {
+                    el.classList.add('hidden');
+                }
+            });
+
+            // Ajustar visibilidad de bloques de subsectores
+            document.querySelectorAll('.subsector-roles-bloque').forEach(subBlock => {
+                const hasVisible = subBlock.querySelectorAll('.item-rol-card:not(.hidden)').length > 0;
+                subBlock.classList.toggle('hidden', !hasVisible);
+            });
+
+            // Ajustar visibilidad de bloques de sectores
+            document.querySelectorAll('.sector-roles-bloque').forEach(secBlock => {
+                const hasVisible = secBlock.querySelectorAll('.item-rol-card:not(.hidden)').length > 0;
+                secBlock.classList.toggle('hidden', !hasVisible);
+            });
+
+            if (noResults) {
+                noResults.classList.toggle('hidden', visibles > 0);
+            }
+            if (contador) {
+                contador.textContent = query 
+                    ? `${visibles} rol(es) encontrado(s)` 
+                    : `${items.length} roles en el sistema`;
+            }
+        }
+
+        // ==================== JS USUARIOS ====================
+        const todosSubsectores = <?= json_encode(array_map(function($sub) {
+            return ['id' => $sub['id'], 'sector_id' => $sub['sector_id'], 'nombre' => $sub['nombre']];
+        }, $subsectores)) ?>;
+
+        const todosRoles = <?= json_encode(array_map(function($r) {
+            return ['id' => $r['id'], 'subsector_id' => $r['subsector_id'], 'nombre' => $r['nombre']];
+        }, $roles)) ?>;
+
+        function filtrarSubsectoresPorSector(selectedSubsectorId = '', selectedRolId = '') {
+            const sectorId = document.getElementById('formSectorId').value;
+            const selectSub = document.getElementById('formSubsectorId');
+            
+            selectSub.innerHTML = '<option value="">Sin Subsector</option>';
+            
+            if (sectorId) {
+                const filtrados = todosSubsectores.filter(s => s.sector_id == sectorId);
+                filtrados.forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = s.id;
+                    opt.textContent = s.nombre;
+                    if (selectedSubsectorId && s.id == selectedSubsectorId) {
+                        opt.selected = true;
+                    }
+                    selectSub.appendChild(opt);
+                });
+            } else {
+                todosSubsectores.forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = s.id;
+                    opt.textContent = s.nombre;
+                    if (selectedSubsectorId && s.id == selectedSubsectorId) {
+                        opt.selected = true;
+                    }
+                    selectSub.appendChild(opt);
+                });
+            }
+
+            // Actualizar roles dependientes del subsector seleccionado
+            filtrarRolesPorSubsector(selectedRolId);
+        }
+
+        function filtrarRolesPorSubsector(selectedRolId = '') {
+            const subsectorId = document.getElementById('formSubsectorId').value;
+            const selectRol = document.getElementById('formRolId');
+            
+            selectRol.innerHTML = '<option value="">Sin Rol Asignado</option>';
+            
+            if (subsectorId) {
+                const filtrados = todosRoles.filter(r => r.subsector_id == subsectorId);
+                filtrados.forEach(r => {
+                    const opt = document.createElement('option');
+                    opt.value = r.id;
+                    opt.textContent = r.nombre;
+                    if (selectedRolId && r.id == selectedRolId) {
+                        opt.selected = true;
+                    }
+                    selectRol.appendChild(opt);
+                });
+            } else {
+                // Si no hay subsector seleccionado, solo se muestran roles globales (sin subsector específico) si existen
+                const globales = todosRoles.filter(r => !r.subsector_id);
+                globales.forEach(r => {
+                    const opt = document.createElement('option');
+                    opt.value = r.id;
+                    opt.textContent = r.nombre;
+                    if (selectedRolId && r.id == selectedRolId) {
+                        opt.selected = true;
+                    }
+                    selectRol.appendChild(opt);
+                });
+            }
+        }
+
+        function editarPass(id, username, currentPass) {
+            document.getElementById('modalUserId').value = id;
+            document.getElementById('modalUsername').textContent = '@' + username;
+            document.getElementById('modalNuevaPass').value = currentPass;
+            abrirModal('modalPass');
+        }
+
+        function abrirModalUsuario() {
+            document.getElementById('tituloModalUsuario').innerHTML = '<i class="fas fa-user-plus text-indigo-600 mr-2"></i> Nuevo Usuario';
+            document.getElementById('formUserId').value = '0';
+            document.getElementById('catPersonal').checked = true;
+            document.getElementById('formUsername').value = '';
+            document.getElementById('formPassword').value = '';
+            document.getElementById('formNombre').value = '';
+            document.getElementById('formEmail').value = '';
+            document.getElementById('formTipo').value = 'PERSONAL';
+            document.getElementById('formSectorId').value = '';
+            filtrarSubsectoresPorSector();
+            document.getElementById('formLegajo').value = '';
+            document.getElementById('formNroSucurs').value = '';
+            document.getElementById('formCodClient').value = '';
+            document.getElementById('formNroSucursal').value = '';
+            document.getElementById('formCodVendedor').value = '';
+            document.getElementById('formActivo').checked = true;
+            toggleCategoria();
+            abrirModal('modalUsuario');
+        }
+
+        function editarUsuario(u) {
+            document.getElementById('tituloModalUsuario').innerHTML = '<i class="fas fa-user-pen text-indigo-600 mr-2"></i> Editar Usuario @' + u.username;
+            document.getElementById('formUserId').value = u.id;
+            
+            const cat = (u.categoria_usuario || 'PERSONAL').toUpperCase();
+            const radioCat = document.querySelector(`input[name="categoria_usuario"][value="${cat}"]`);
+            if (radioCat) {
+                radioCat.checked = true;
+            } else {
+                document.getElementById('catPersonal').checked = true;
+            }
+
+            document.getElementById('formUsername').value = u.username || '';
+            document.getElementById('formPassword').value = u.password || u.password_plain || '';
+            document.getElementById('formNombre').value = u.nombre_completo || '';
+            document.getElementById('formEmail').value = u.email || '';
+            document.getElementById('formTipo').value = u.tipo || cat;
+            document.getElementById('formSectorId').value = u.sector_id || '';
+            filtrarSubsectoresPorSector(u.subsector_id || '', u.rol_id || '');
+            document.getElementById('formLegajo').value = u.legajo || '';
+            document.getElementById('formNroSucurs').value = u.nro_sucurs || '';
+            document.getElementById('formCodClient').value = u.cod_client || '';
+            document.getElementById('formNroSucursal').value = u.nro_sucursal || '';
+            document.getElementById('formCodVendedor').value = u.cod_vendedor || '';
+            document.getElementById('formActivo').checked = (u.activo == 1);
+            toggleCategoria();
+            abrirModal('modalUsuario');
+        }
+
+        function confirmarEliminarUsuario(id, username) {
+            document.getElementById('borrarUserId').value = id;
+            document.getElementById('borrarUsername').value = username;
+            document.getElementById('nombreUsuarioBorrar').textContent = '@' + username;
+            abrirModal('modalEliminarUsuario');
+        }
+
+        function abrirModal(id) {
+            const m = document.getElementById(id);
+            if (m) {
+                m.classList.remove('hidden');
+                m.classList.add('flex');
+            }
+        }
+
+        function cerrarModal(id) {
+            const m = document.getElementById(id);
+            if (m) {
+                m.classList.add('hidden');
+                m.classList.remove('flex');
+            }
+        }
+
+        // ==================== JS MATRIZ HUB & ACCESOS ====================
+        function mostrarToast(mensaje, tipo = 'success') {
+            let container = document.getElementById('toastGlobalContainer');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'toastGlobalContainer';
+                container.className = 'fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none';
+                document.body.appendChild(container);
+            }
+            const toast = document.createElement('div');
+            const esOk = (tipo === 'success');
+            toast.className = `pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-2xl shadow-lg border text-xs font-semibold transform transition-all duration-300 translate-y-3 opacity-0 ${esOk ? 'bg-slate-900 text-white border-slate-700' : 'bg-rose-600 text-white border-rose-700'}`;
+            toast.innerHTML = `<i class="fas ${esOk ? 'fa-circle-check text-emerald-400' : 'fa-triangle-exclamation text-white'} text-sm"></i> <span>${mensaje}</span>`;
+            container.appendChild(toast);
+            
+            requestAnimationFrame(() => {
+                toast.classList.remove('translate-y-3', 'opacity-0');
+            });
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        function toggleHubPermiso(checkbox, rolId, permisoId) {
+            const activo = checkbox.checked ? 1 : 0;
+            const itemBox = document.getElementById(`itemApp_${rolId}_${permisoId}`);
+            
+            // Visual feedback inmediato
+            if (itemBox) {
+                if (activo) {
+                    itemBox.classList.remove('bg-slate-50/60', 'border-slate-200/80');
+                    itemBox.classList.add('bg-indigo-50/40', 'border-indigo-200');
+                } else {
+                    itemBox.classList.remove('bg-indigo-50/40', 'border-indigo-200');
+                    itemBox.classList.add('bg-slate-50/60', 'border-slate-200/80');
+                }
+            }
+            actualizarContadorAppsRol(rolId);
+
+            const formData = new FormData();
+            formData.append('ajax', '1');
+            formData.append('action', 'toggle_permiso_hub_rol');
+            formData.append('rol_id', rolId);
+            formData.append('permiso_id', permisoId);
+            formData.append('activo', activo);
+
+            fetch('', { method: 'POST', body: formData })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.ok) {
+                        mostrarToast(data.mensaje || (activo ? 'Acceso habilitado' : 'Acceso revocado'));
+                    } else {
+                        // Revertir si hubo error
+                        checkbox.checked = !checkbox.checked;
+                        toggleHubPermiso(checkbox, rolId, permisoId);
+                        mostrarToast(data.error || 'Error al actualizar permiso', 'error');
+                    }
+                })
+                .catch(err => {
+                    checkbox.checked = !checkbox.checked;
+                    mostrarToast('Error de conexión con el servidor', 'error');
+                });
+        }
+
+        function actualizarContadorAppsRol(rolId) {
+            const rolCard = document.querySelector(`.rol-hub-card[data-rol-id="${rolId}"]`);
+            if (!rolCard) return;
+            const switches = rolCard.querySelectorAll('.switch-hub-permiso');
+            let activas = 0;
+            switches.forEach(s => { if (s.checked) activas++; });
+            const badge = document.getElementById(`badgeRolApps_${rolId}`);
+            if (badge) {
+                const countVal = badge.querySelector('.count-val');
+                if (countVal) countVal.textContent = activas;
+                if (activas > 0) {
+                    badge.className = 'px-2.5 py-1 rounded-lg text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200';
+                } else {
+                    badge.className = 'px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 text-slate-500 border border-slate-200';
+                }
+            }
+        }
+
+        function marcarTodasAppsRol(rolId, activar) {
+            const rolCard = document.querySelector(`.rol-hub-card[data-rol-id="${rolId}"]`);
+            if (!rolCard) return;
+            const switches = rolCard.querySelectorAll('.switch-hub-permiso');
+            const permisoIds = [];
+
+            switches.forEach(s => {
+                s.checked = activar;
+                const pId = s.getAttribute('data-permiso-id');
+                const itemBox = document.getElementById(`itemApp_${rolId}_${pId}`);
+                if (itemBox) {
+                    if (activar) {
+                        itemBox.classList.remove('bg-slate-50/60', 'border-slate-200/80');
+                        itemBox.classList.add('bg-indigo-50/40', 'border-indigo-200');
+                        permisoIds.push(pId);
+                    } else {
+                        itemBox.classList.remove('bg-indigo-50/40', 'border-indigo-200');
+                        itemBox.classList.add('bg-slate-50/60', 'border-slate-200/80');
+                    }
+                }
+            });
+            actualizarContadorAppsRol(rolId);
+
+            const formData = new FormData();
+            formData.append('ajax', '1');
+            formData.append('action', 'guardar_permisos_hub_rol');
+            formData.append('rol_id', rolId);
+            permisoIds.forEach(id => formData.append('permiso_ids[]', id));
+
+            fetch('', { method: 'POST', body: formData })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.ok) {
+                        mostrarToast(activar ? 'Todas las apps habilitadas' : 'Accesos desmarcados');
+                    } else {
+                        mostrarToast(data.error || 'Error al guardar', 'error');
+                    }
+                })
+                .catch(() => mostrarToast('Error de conexión', 'error'));
+        }
+
+        function aplicarTodosRolesSubsector(subsectorId, todas) {
+            const formData = new FormData();
+            formData.append('ajax', '1');
+            formData.append('action', 'aplicar_permisos_hub_subsector');
+            formData.append('subsector_id', subsectorId);
+
+            // Obtener todos los permisos del catálogo
+            if (todas) {
+                const primerRol = document.querySelector('.rol-hub-card');
+                if (primerRol) {
+                    primerRol.querySelectorAll('.switch-hub-permiso').forEach(s => {
+                        formData.append('permiso_ids[]', s.getAttribute('data-permiso-id'));
+                    });
+                }
+            } else {
+                // Solo NODO
+                const switchNodo = document.querySelector('.switch-hub-permiso[data-permiso-clave="hub.app.nodo"]');
+                if (switchNodo) {
+                    formData.append('permiso_ids[]', switchNodo.getAttribute('data-permiso-id'));
+                }
+            }
+
+            fetch('', { method: 'POST', body: formData })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.ok) {
+                        mostrarToast(data.mensaje);
+                        setTimeout(() => window.location.reload(), 600);
+                    } else {
+                        mostrarToast(data.error || 'Error al aplicar a subsector', 'error');
+                    }
+                })
+                .catch(() => mostrarToast('Error de conexión', 'error'));
+        }
+
+        function toggleSectorHub(sectorId) {
+            const cont = document.getElementById(`contenidoSector_${sectorId}`);
+            const icon = document.getElementById(`chevronSector_${sectorId}`);
+            if (cont) {
+                cont.classList.toggle('hidden');
+                if (icon) {
+                    icon.classList.toggle('rotate-180', !cont.classList.contains('hidden'));
+                }
+            }
+        }
+
+        let todosSectoresExpandidos = true;
+        function toggleTodosSectoresHub() {
+            todosSectoresExpandidos = !todosSectoresExpandidos;
+            document.querySelectorAll('.sector-hub-contenido').forEach(c => {
+                c.classList.toggle('hidden', !todosSectoresExpandidos);
+            });
+            document.querySelectorAll('[id^="chevronSector_"]').forEach(i => {
+                i.classList.toggle('rotate-180', todosSectoresExpandidos);
+            });
+            const lbl = document.getElementById('lblToggleTodosSectores');
+            if (lbl) lbl.textContent = todosSectoresExpandidos ? 'Colapsar todos' : 'Expandir todos';
+        }
+
+        function filtrarMatrizHubEnVivo(val) {
+            const q = val.toLowerCase().trim();
+            const cards = document.querySelectorAll('.rol-hub-card');
+            cards.forEach(c => {
+                const searchData = c.getAttribute('data-search') || '';
+                const match = (!q || searchData.includes(q));
+                c.classList.toggle('hidden', !match);
+            });
+
+            // Ocultar subsectores vacíos
+            document.querySelectorAll('.subsector-hub-bloque').forEach(sub => {
+                const hayVisibles = Array.from(sub.querySelectorAll('.rol-hub-card')).some(c => !c.classList.contains('hidden'));
+                sub.classList.toggle('hidden', !hayVisibles && q !== '');
+            });
+
+            // Ocultar sectores vacíos
+            document.querySelectorAll('.sector-hub-bloque').forEach(sec => {
+                const hayVisibles = Array.from(sec.querySelectorAll('.rol-hub-card')).some(c => !c.classList.contains('hidden'));
+                sec.classList.toggle('hidden', !hayVisibles && q !== '');
+            });
+        }
+
+        function abrirModalCopiarPermisosHub(rolOrigenId = null) {
+            if (rolOrigenId) {
+                const sel = document.getElementById('copiaRolOrigen');
+                if (sel) sel.value = rolOrigenId;
+            }
+            abrirModal('modalCopiarPermisosHub');
+        }
+
+        function toggleTodosRolesDestino() {
+            const chks = document.querySelectorAll('.chk-rol-destino');
+            const anyUnchecked = Array.from(chks).some(c => !c.checked);
+            chks.forEach(c => { c.checked = anyUnchecked; });
+        }
+
+        function ejecutarCopiaPermisosHub(e) {
+            e.preventDefault();
+            const rolOrigen = document.getElementById('copiaRolOrigen').value;
+            const chks = document.querySelectorAll('.chk-rol-destino:checked');
+            if (!rolOrigen) {
+                mostrarToast('Seleccioná el rol origen', 'error');
+                return;
+            }
+            if (chks.length === 0) {
+                mostrarToast('Seleccioná al menos un rol destino', 'error');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('ajax', '1');
+            formData.append('action', 'copiar_permisos_hub_rol');
+            formData.append('rol_origen_id', rolOrigen);
+            chks.forEach(c => formData.append('rol_destino_ids[]', c.value));
+
+            fetch('', { method: 'POST', body: formData })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.ok) {
+                        cerrarModal('modalCopiarPermisosHub');
+                        mostrarToast(data.mensaje);
+                        setTimeout(() => window.location.reload(), 700);
+                    } else {
+                        mostrarToast(data.error || 'Error al copiar permisos', 'error');
+                    }
+                })
+                .catch(() => mostrarToast('Error de conexión', 'error'));
+        }
+
+        // ==================== JS SUBMÓDULOS DE CENTRALIZADORES ====================
+        let currentSubmodRolId = null;
+        let currentSubmodModuloId = null;
+
+        function abrirModalSubmodulos(rolId, moduloId, rolNombre, moduloNombre) {
+            currentSubmodRolId = rolId;
+            currentSubmodModuloId = moduloId;
+
+            document.getElementById('submodModalModNombre').textContent = moduloNombre;
+            document.getElementById('submodModalRolNombre').textContent = rolNombre;
+            document.getElementById('buscadorSubmodulos').value = '';
+            document.getElementById('submodModalContenido').innerHTML = `
+                <div class="py-12 text-center text-slate-400">
+                    <i class="fas fa-spinner fa-spin text-2xl text-indigo-500 mb-2 block"></i>
+                    Cargando menú y aplicaciones internas...
+                </div>
+            `;
+            abrirModal('modalSubmodulosCentralizador');
+
+            const formData = new FormData();
+            formData.append('ajax', '1');
+            formData.append('action', 'obtener_submodulos_centralizador');
+            formData.append('rol_id', rolId);
+            formData.append('modulo_id', moduloId);
+
+            fetch('', { method: 'POST', body: formData })
+                .then(r => r.json())
+                .then(res => {
+                    if (res.ok && res.data) {
+                        renderizarSubmodulosEnModal(res.data);
+                    } else {
+                        document.getElementById('submodModalContenido').innerHTML = `
+                            <div class="p-4 bg-rose-50 text-rose-700 rounded-xl border border-rose-200 text-xs">
+                                ${res.error || 'No se pudieron cargar los submódulos'}
+                            </div>
+                        `;
+                    }
+                })
+                .catch(() => {
+                    document.getElementById('submodModalContenido').innerHTML = `
+                        <div class="p-4 bg-rose-50 text-rose-700 rounded-xl border border-rose-200 text-xs">
+                            Error de conexión con el servidor.
+                        </div>
+                    `;
+                });
+        }
+
+        function renderizarSubmodulosEnModal(data) {
+            const cont = document.getElementById('submodModalContenido');
+            const secciones = data.secciones || {};
+            const total = data.total_items || 0;
+            const activos = data.total_activos || 0;
+
+            document.getElementById('submodModalContador').textContent = `${activos} / ${total} habilitadas`;
+
+            if (Object.keys(secciones).length === 0) {
+                cont.innerHTML = `
+                    <div class="py-8 text-center text-slate-400 text-xs">
+                        Este centralizador no cuenta con submódulos configurables.
+                    </div>
+                `;
+                return;
+            }
+
+            let html = '';
+            let secIdx = 0;
+            for (const [secNombre, items] of Object.entries(secciones)) {
+                secIdx++;
+                const cantItemsSec = items.length;
+                const cantActivosSec = items.filter(it => it.activo).length;
+
+                html += `
+                    <div class="seccion-submod-bloque border border-slate-200 rounded-xl overflow-hidden bg-slate-50/40">
+                        <div class="p-3 bg-white border-b border-slate-200/80 flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <span class="w-2 h-2 rounded-full bg-indigo-500"></span>
+                                <h4 class="text-xs font-bold text-slate-900">${secNombre}</h4>
+                                <span class="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-semibold sec-counter-${secIdx}">
+                                    ${cantActivosSec} / ${cantItemsSec}
+                                </span>
+                            </div>
+                            <div class="flex items-center gap-1.5">
+                                <button type="button" onclick="toggleSeccionSubmodulos(${secIdx}, true)" class="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold px-2 py-0.5 rounded hover:bg-indigo-50 transition">
+                                    Marcar Todo
+                                </button>
+                                <span class="text-slate-300">|</span>
+                                <button type="button" onclick="toggleSeccionSubmodulos(${secIdx}, false)" class="text-[11px] text-slate-500 hover:text-slate-700 font-semibold px-2 py-0.5 rounded hover:bg-slate-100 transition">
+                                    Desmarcar
+                                </button>
+                            </div>
+                        </div>
+                        <div class="p-3 grid grid-cols-1 sm:grid-cols-2 gap-2" id="secItemsCont_${secIdx}">
+                `;
+
+                items.forEach(it => {
+                    const searchStr = (secNombre + ' ' + it.nombre + ' ' + (it.descripcion_limpia || '')).toLowerCase();
+                    html += `
+                        <label class="submod-item-card flex items-start p-2.5 rounded-xl border bg-white cursor-pointer transition hover:border-indigo-300 ${it.activo ? 'border-indigo-200 bg-indigo-50/20' : 'border-slate-200 text-slate-600'}" 
+                               data-search="${searchStr}">
+                            <input type="checkbox" 
+                                   value="${it.id}" 
+                                   data-sec-idx="${secIdx}"
+                                   class="chk-submod-item rounded text-indigo-600 focus:ring-indigo-500 mt-0.5 shrink-0" 
+                                   ${it.activo ? 'checked' : ''} 
+                                   onchange="actualizarEstadoItemSubmod(this)">
+                            <div class="ml-2.5 min-w-0">
+                                <div class="text-xs font-bold text-slate-900 leading-tight">${it.nombre}</div>
+                                <div class="text-[11px] text-slate-400 line-clamp-2 mt-0.5 leading-snug">${it.descripcion_limpia || 'Acceso directo'}</div>
+                            </div>
+                        </label>
+                    `;
+                });
+
+                html += `
+                        </div>
+                    </div>
+                `;
+            }
+
+            cont.innerHTML = html;
+        }
+
+        function actualizarEstadoItemSubmod(chk) {
+            const card = chk.closest('.submod-item-card');
+            if (card) {
+                if (chk.checked) {
+                    card.classList.add('border-indigo-200', 'bg-indigo-50/20');
+                    card.classList.remove('border-slate-200');
+                } else {
+                    card.classList.remove('border-indigo-200', 'bg-indigo-50/20');
+                    card.classList.add('border-slate-200');
+                }
+            }
+
+            // Actualizar contador sección
+            const secIdx = chk.getAttribute('data-sec-idx');
+            if (secIdx) {
+                const itemsSec = document.querySelectorAll(`#secItemsCont_${secIdx} .chk-submod-item`);
+                const itemsSecActivos = document.querySelectorAll(`#secItemsCont_${secIdx} .chk-submod-item:checked`);
+                const secBadge = document.querySelector(`.sec-counter-${secIdx}`);
+                if (secBadge) {
+                    secBadge.textContent = `${itemsSecActivos.length} / ${itemsSec.length}`;
+                }
+            }
+
+            // Actualizar contador global modal
+            const total = document.querySelectorAll('.chk-submod-item').length;
+            const activos = document.querySelectorAll('.chk-submod-item:checked').length;
+            document.getElementById('submodModalContador').textContent = `${activos} / ${total} habilitadas`;
+        }
+
+        function toggleSeccionSubmodulos(secIdx, marcar) {
+            const chks = document.querySelectorAll(`#secItemsCont_${secIdx} .chk-submod-item`);
+            chks.forEach(c => {
+                c.checked = marcar;
+                actualizarEstadoItemSubmod(c);
+            });
+        }
+
+        function toggleTodosSubmodulos(marcar) {
+            const chks = document.querySelectorAll('.chk-submod-item');
+            chks.forEach(c => {
+                c.checked = marcar;
+                actualizarEstadoItemSubmod(c);
+            });
+        }
+
+        function filtrarSubmodulosEnModal(val) {
+            const q = val.toLowerCase().trim();
+            const cards = document.querySelectorAll('.submod-item-card');
+            cards.forEach(c => {
+                const searchStr = c.getAttribute('data-search') || '';
+                c.classList.toggle('hidden', !(!q || searchStr.includes(q)));
+            });
+
+            // Ocultar secciones si no tienen ítems visibles
+            document.querySelectorAll('.seccion-submod-bloque').forEach(sec => {
+                const hayVisibles = Array.from(sec.querySelectorAll('.submod-item-card')).some(c => !c.classList.contains('hidden'));
+                sec.classList.toggle('hidden', !hayVisibles && q !== '');
+            });
+        }
+
+        function guardarSubmodulosCentralizador() {
+            if (!currentSubmodRolId || !currentSubmodModuloId) return;
+
+            const chks = document.querySelectorAll('.chk-submod-item:checked');
+            const btn = document.getElementById('btnGuardarSubmodulos');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Guardando...';
+
+            const formData = new FormData();
+            formData.append('ajax', '1');
+            formData.append('action', 'guardar_submodulos_centralizador');
+            formData.append('rol_id', currentSubmodRolId);
+            formData.append('modulo_id', currentSubmodModuloId);
+            chks.forEach(c => formData.append('permiso_ids[]', c.value));
+
+            fetch('', { method: 'POST', body: formData })
+                .then(r => r.json())
+                .then(res => {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-check"></i> Guardar Accesos Internos';
+                    if (res.ok) {
+                        cerrarModal('modalSubmodulosCentralizador');
+                        mostrarToast(res.mensaje || 'Accesos internos guardados con éxito');
+                    } else {
+                        mostrarToast(res.error || 'Error al guardar accesos', 'error');
+                    }
+                })
+                .catch(() => {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-check"></i> Guardar Accesos Internos';
+                    mostrarToast('Error de conexión', 'error');
+                });
+        }
+    </script>
+</body>
+</html>
