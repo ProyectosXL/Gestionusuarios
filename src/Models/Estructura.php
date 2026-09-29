@@ -483,4 +483,258 @@ class Estructura {
             }
         }
     }
+
+    // ==================== GESTIÓN DE MÓDULOS & APPS (CRUD) ====================
+
+    public function listarModulosTodos() {
+        $sql = "SELECT m.id, m.codigo, m.nombre, m.categoria, m.ruta_url, m.icono, m.color, m.descripcion, m.target_blank, m.orden, m.activo,
+                       (SELECT COUNT(*) FROM FP_PERMISOS sp WHERE sp.modulo_id = m.id) as cant_permisos_total,
+                       (SELECT COUNT(*) FROM FP_PERMISOS sp WHERE sp.modulo_id = m.id AND sp.clave NOT LIKE 'hub.app.%') as cant_submodulos,
+                       (SELECT COUNT(DISTINCT rp.rol_id) FROM FP_ROL_PERMISO rp JOIN FP_PERMISOS p ON p.id = rp.permiso_id WHERE p.modulo_id = m.id) as cant_roles_asignados
+                FROM FP_MODULOS m
+                ORDER BY m.categoria ASC, m.orden ASC, m.nombre ASC";
+        $stmt = sqlsrv_query($this->db, $sql);
+        $modulos = [];
+        if ($stmt) {
+            while ($r = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+                $modulos[] = $r;
+            }
+        }
+        return $modulos;
+    }
+
+    public function obtenerModulo($id) {
+        $sql = "SELECT * FROM FP_MODULOS WHERE id = ?";
+        $stmt = sqlsrv_query($this->db, $sql, [(int)$id]);
+        if ($stmt && ($r = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC))) {
+            return $r;
+        }
+        return null;
+    }
+
+    public function crearModulo($codigo, $nombre, $categoria, $rutaUrl, $icono, $color, $descripcion = '', $orden = 100, $targetBlank = 0, $activo = 1) {
+        $codigo = strtoupper(preg_replace('/[^A-Za-z0-9_]/', '', trim($codigo)));
+        $nombre = trim($nombre);
+        $categoria = trim($categoria) ?: 'General';
+        $rutaUrl = trim($rutaUrl);
+        $icono = trim($icono) ?: 'fa-cube';
+        $color = trim($color) ?: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)';
+        $descripcion = trim($descripcion);
+        $orden = (int)$orden;
+        $targetBlank = $targetBlank ? 1 : 0;
+        $activo = $activo ? 1 : 0;
+
+        if (empty($codigo) || empty($nombre)) {
+            throw new Exception("El código y el nombre del módulo son obligatorios.");
+        }
+
+        // Verificar código único
+        $stmtCheck = sqlsrv_query($this->db, "SELECT 1 FROM FP_MODULOS WHERE codigo = ?", [$codigo]);
+        if ($stmtCheck && sqlsrv_has_rows($stmtCheck)) {
+            throw new Exception("Ya existe un módulo con el código '$codigo'.");
+        }
+
+        sqlsrv_begin_transaction($this->db);
+        try {
+            $sql = "INSERT INTO FP_MODULOS (codigo, nombre, categoria, ruta_url, icono, color, descripcion, orden, target_blank, activo) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            $stmt = sqlsrv_query($this->db, $sql, [
+                $codigo, $nombre, $categoria, $rutaUrl, $icono, $color, $descripcion, $orden, $targetBlank, $activo
+            ]);
+            if (!$stmt) {
+                throw new Exception("Error al insertar en FP_MODULOS: " . print_r(sqlsrv_errors(), true));
+            }
+
+            // Obtener el ID generado
+            $stmtId = sqlsrv_query($this->db, "SELECT id FROM FP_MODULOS WHERE codigo = ?", [$codigo]);
+            $rowId = sqlsrv_fetch_array($stmtId, SQLSRV_FETCH_ASSOC);
+            $moduloId = $rowId['id'] ?? null;
+
+            if ($moduloId) {
+                // Crear automáticamente el permiso principal del Hub para este módulo
+                $claveHub = 'hub.app.' . strtolower($codigo);
+                $nombreHub = 'Acceso a ' . $nombre . ' en Hub';
+                $descHub = '[Hub] ' . ($descripcion ?: $nombre);
+
+                $sqlHub = "IF NOT EXISTS (SELECT 1 FROM FP_PERMISOS WHERE modulo_id = ? AND clave = ?)
+                           INSERT INTO FP_PERMISOS (modulo_id, clave, nombre, descripcion) VALUES (?, ?, ?, ?)";
+                sqlsrv_query($this->db, $sqlHub, [$moduloId, $claveHub, $moduloId, $claveHub, $nombreHub, $descHub]);
+            }
+
+            sqlsrv_commit($this->db);
+            return $moduloId;
+        } catch (Exception $e) {
+            sqlsrv_rollback($this->db);
+            throw $e;
+        }
+    }
+
+    public function actualizarModulo($id, $codigo, $nombre, $categoria, $rutaUrl, $icono, $color, $descripcion = '', $orden = 100, $targetBlank = 0, $activo = 1) {
+        $id = (int)$id;
+        $codigo = strtoupper(preg_replace('/[^A-Za-z0-9_]/', '', trim($codigo)));
+        $nombre = trim($nombre);
+        $categoria = trim($categoria) ?: 'General';
+        $rutaUrl = trim($rutaUrl);
+        $icono = trim($icono) ?: 'fa-cube';
+        $color = trim($color) ?: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)';
+        $descripcion = trim($descripcion);
+        $orden = (int)$orden;
+        $targetBlank = $targetBlank ? 1 : 0;
+        $activo = $activo ? 1 : 0;
+
+        if ($id <= 0 || empty($codigo) || empty($nombre)) {
+            throw new Exception("Datos incompletos para actualizar el módulo.");
+        }
+
+        // Verificar código único en otros módulos
+        $stmtCheck = sqlsrv_query($this->db, "SELECT 1 FROM FP_MODULOS WHERE codigo = ? AND id != ?", [$codigo, $id]);
+        if ($stmtCheck && sqlsrv_has_rows($stmtCheck)) {
+            throw new Exception("Ya existe otro módulo con el código '$codigo'.");
+        }
+
+        sqlsrv_begin_transaction($this->db);
+        try {
+            $sql = "UPDATE FP_MODULOS SET 
+                        codigo = ?, nombre = ?, categoria = ?, ruta_url = ?, icono = ?, 
+                        color = ?, descripcion = ?, orden = ?, target_blank = ?, activo = ? 
+                    WHERE id = ?";
+            $stmt = sqlsrv_query($this->db, $sql, [
+                $codigo, $nombre, $categoria, $rutaUrl, $icono, $color, $descripcion, $orden, $targetBlank, $activo, $id
+            ]);
+            if (!$stmt) {
+                throw new Exception("Error al actualizar FP_MODULOS: " . print_r(sqlsrv_errors(), true));
+            }
+
+            // Asegurar permiso del Hub
+            $claveHub = 'hub.app.' . strtolower($codigo);
+            $nombreHub = 'Acceso a ' . $nombre . ' en Hub';
+            $descHub = '[Hub] ' . ($descripcion ?: $nombre);
+
+            $stmtCheckHub = sqlsrv_query($this->db, "SELECT id FROM FP_PERMISOS WHERE modulo_id = ? AND clave LIKE 'hub.app.%'", [$id]);
+            if ($stmtCheckHub && ($rHub = sqlsrv_fetch_array($stmtCheckHub, SQLSRV_FETCH_ASSOC))) {
+                sqlsrv_query($this->db, "UPDATE FP_PERMISOS SET clave = ?, nombre = ?, descripcion = ? WHERE id = ?", [
+                    $claveHub, $nombreHub, $descHub, $rHub['id']
+                ]);
+            } else {
+                sqlsrv_query($this->db, "INSERT INTO FP_PERMISOS (modulo_id, clave, nombre, descripcion) VALUES (?, ?, ?, ?)", [
+                    $id, $claveHub, $nombreHub, $descHub
+                ]);
+            }
+
+            sqlsrv_commit($this->db);
+            return true;
+        } catch (Exception $e) {
+            sqlsrv_rollback($this->db);
+            throw $e;
+        }
+    }
+
+    public function eliminarModulo($id) {
+        $id = (int)$id;
+        if ($id <= 0) return false;
+
+        sqlsrv_begin_transaction($this->db);
+        try {
+            // Eliminar asignaciones de permisos a roles
+            sqlsrv_query($this->db, "DELETE FROM FP_ROL_PERMISO WHERE permiso_id IN (SELECT id FROM FP_PERMISOS WHERE modulo_id = ?)", [$id]);
+            // Eliminar permisos
+            sqlsrv_query($this->db, "DELETE FROM FP_PERMISOS WHERE modulo_id = ?", [$id]);
+            // Eliminar módulo
+            $stmt = sqlsrv_query($this->db, "DELETE FROM FP_MODULOS WHERE id = ?", [$id]);
+            sqlsrv_commit($this->db);
+            return true;
+        } catch (Exception $e) {
+            sqlsrv_rollback($this->db);
+            throw $e;
+        }
+    }
+
+    public function listarPermisosDeModulo($moduloId) {
+        $moduloId = (int)$moduloId;
+        $sql = "SELECT p.id, p.modulo_id, p.clave, p.nombre, p.descripcion,
+                       (SELECT COUNT(*) FROM FP_ROL_PERMISO rp WHERE rp.permiso_id = p.id) as cant_roles_con_permiso
+                FROM FP_PERMISOS p
+                WHERE p.modulo_id = ?
+                ORDER BY CASE WHEN p.clave LIKE 'hub.app.%' THEN 0 ELSE 1 END, p.id ASC";
+        $stmt = sqlsrv_query($this->db, $sql, [$moduloId]);
+        $res = [];
+        if ($stmt) {
+            while ($p = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+                $desc = $p['descripcion'] ?? '';
+                $secNombre = 'General';
+                $itemDesc = $desc;
+                if (preg_match('/^\[(.*?)\]\s*(.*)$/', $desc, $matches)) {
+                    $secNombre = trim($matches[1]);
+                    $itemDesc = trim($matches[2]);
+                }
+                $p['seccion'] = $secNombre;
+                $p['descripcion_limpia'] = $itemDesc;
+                $p['es_raiz_hub'] = (strpos($p['clave'], 'hub.app.') === 0);
+                $res[] = $p;
+            }
+        }
+        return $res;
+    }
+
+    public function crearPermisoModulo($moduloId, $clave, $nombre, $seccion = '', $descripcion = '') {
+        $moduloId = (int)$moduloId;
+        $clave = strtolower(trim($clave));
+        $nombre = trim($nombre);
+        $seccion = trim($seccion);
+        $descripcion = trim($descripcion);
+
+        if ($moduloId <= 0 || empty($clave) || empty($nombre)) {
+            throw new Exception("La clave y el nombre del permiso son obligatorios.");
+        }
+
+        // Verificar clave única dentro del módulo
+        $stmtCheck = sqlsrv_query($this->db, "SELECT 1 FROM FP_PERMISOS WHERE modulo_id = ? AND clave = ?", [$moduloId, $clave]);
+        if ($stmtCheck && sqlsrv_has_rows($stmtCheck)) {
+            throw new Exception("Ya existe un permiso con la clave '$clave' en este módulo.");
+        }
+
+        $descCompleta = !empty($seccion) ? "[$seccion] $descripcion" : $descripcion;
+        $sql = "INSERT INTO FP_PERMISOS (modulo_id, clave, nombre, descripcion) VALUES (?, ?, ?, ?)";
+        $stmt = sqlsrv_query($this->db, $sql, [$moduloId, $clave, $nombre, $descCompleta]);
+        if (!$stmt) {
+            throw new Exception("Error al guardar el permiso: " . print_r(sqlsrv_errors(), true));
+        }
+        return true;
+    }
+
+    public function actualizarPermisoModulo($permisoId, $clave, $nombre, $seccion = '', $descripcion = '') {
+        $permisoId = (int)$permisoId;
+        $clave = strtolower(trim($clave));
+        $nombre = trim($nombre);
+        $seccion = trim($seccion);
+        $descripcion = trim($descripcion);
+
+        if ($permisoId <= 0 || empty($clave) || empty($nombre)) {
+            throw new Exception("Datos incompletos para actualizar el permiso.");
+        }
+
+        $descCompleta = !empty($seccion) ? "[$seccion] $descripcion" : $descripcion;
+        $sql = "UPDATE FP_PERMISOS SET clave = ?, nombre = ?, descripcion = ? WHERE id = ?";
+        $stmt = sqlsrv_query($this->db, $sql, [$clave, $nombre, $descCompleta, $permisoId]);
+        if (!$stmt) {
+            throw new Exception("Error al actualizar el permiso: " . print_r(sqlsrv_errors(), true));
+        }
+        return true;
+    }
+
+    public function eliminarPermisoModulo($permisoId) {
+        $permisoId = (int)$permisoId;
+        if ($permisoId <= 0) return false;
+
+        sqlsrv_begin_transaction($this->db);
+        try {
+            sqlsrv_query($this->db, "DELETE FROM FP_ROL_PERMISO WHERE permiso_id = ?", [$permisoId]);
+            sqlsrv_query($this->db, "DELETE FROM FP_PERMISOS WHERE id = ?", [$permisoId]);
+            sqlsrv_commit($this->db);
+            return true;
+        } catch (Exception $e) {
+            sqlsrv_rollback($this->db);
+            throw $e;
+        }
+    }
 }

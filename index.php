@@ -321,6 +321,79 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax']) && $_POST['aj
         }
         exit;
     }
+    // 10. Obtener Datos de un Módulo
+    elseif ($action === 'obtener_modulo') {
+        $moduloId = (int)($_POST['modulo_id'] ?? 0);
+        try {
+            $m = $estructuraModel->obtenerModulo($moduloId);
+            if ($m) {
+                echo json_encode(['ok' => true, 'modulo' => $m]);
+            } else {
+                echo json_encode(['ok' => false, 'error' => 'Módulo no encontrado']);
+            }
+        } catch (\Exception $e) {
+            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+        }
+        exit;
+    }
+    // 11. Listar Permisos / Solapas de un Módulo
+    elseif ($action === 'listar_permisos_modulo') {
+        $moduloId = (int)($_POST['modulo_id'] ?? 0);
+        try {
+            $modulo = $estructuraModel->obtenerModulo($moduloId);
+            $permisos = $estructuraModel->listarPermisosDeModulo($moduloId);
+            echo json_encode(['ok' => true, 'modulo' => $modulo, 'permisos' => $permisos]);
+        } catch (\Exception $e) {
+            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+        }
+        exit;
+    }
+    // 12. Crear Permiso / Solapa en Módulo
+    elseif ($action === 'crear_permiso_modulo') {
+        $moduloId = (int)($_POST['modulo_id'] ?? 0);
+        $clave = trim($_POST['clave'] ?? '');
+        $nombre = trim($_POST['nombre'] ?? '');
+        $seccion = trim($_POST['seccion'] ?? '');
+        $descripcion = trim($_POST['descripcion'] ?? '');
+        try {
+            $estructuraModel->crearPermisoModulo($moduloId, $clave, $nombre, $seccion, $descripcion);
+            $permisos = $estructuraModel->listarPermisosDeModulo($moduloId);
+            echo json_encode(['ok' => true, 'mensaje' => 'Solapa/Permiso agregado correctamente', 'permisos' => $permisos]);
+        } catch (\Exception $e) {
+            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+        }
+        exit;
+    }
+    // 13. Actualizar Permiso / Solapa en Módulo
+    elseif ($action === 'actualizar_permiso_modulo') {
+        $moduloId = (int)($_POST['modulo_id'] ?? 0);
+        $permisoId = (int)($_POST['permiso_id'] ?? 0);
+        $clave = trim($_POST['clave'] ?? '');
+        $nombre = trim($_POST['nombre'] ?? '');
+        $seccion = trim($_POST['seccion'] ?? '');
+        $descripcion = trim($_POST['descripcion'] ?? '');
+        try {
+            $estructuraModel->actualizarPermisoModulo($permisoId, $clave, $nombre, $seccion, $descripcion);
+            $permisos = $estructuraModel->listarPermisosDeModulo($moduloId);
+            echo json_encode(['ok' => true, 'mensaje' => 'Solapa/Permiso actualizado correctamente', 'permisos' => $permisos]);
+        } catch (\Exception $e) {
+            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+        }
+        exit;
+    }
+    // 14. Eliminar Permiso / Solapa en Módulo
+    elseif ($action === 'eliminar_permiso_modulo') {
+        $moduloId = (int)($_POST['modulo_id'] ?? 0);
+        $permisoId = (int)($_POST['permiso_id'] ?? 0);
+        try {
+            $estructuraModel->eliminarPermisoModulo($permisoId);
+            $permisos = $estructuraModel->listarPermisosDeModulo($moduloId);
+            echo json_encode(['ok' => true, 'mensaje' => 'Solapa/Permiso eliminado correctamente', 'permisos' => $permisos]);
+        } catch (\Exception $e) {
+            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+        }
+        exit;
+    }
     
     echo json_encode(['ok' => false, 'error' => 'Acción AJAX desconocida']);
     exit;
@@ -493,6 +566,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $redirectUrl = "?tab=relevamiento" . (isset($_POST['query_string']) ? '&' . $_POST['query_string'] : '');
     }
+    // 8. Crear / Editar Módulo
+    elseif ($action === 'guardar_modulo') {
+        $moduloId = (int)($_POST['modulo_id'] ?? 0);
+        $codigo = trim($_POST['codigo'] ?? '');
+        $nombre = trim($_POST['nombre'] ?? '');
+        $categoria = trim($_POST['categoria'] ?? 'General');
+        $rutaUrl = trim($_POST['ruta_url'] ?? '');
+        $icono = trim($_POST['icono'] ?? 'fa-cube');
+        $color = trim($_POST['color'] ?? 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)');
+        $descripcion = trim($_POST['descripcion'] ?? '');
+        $orden = (int)($_POST['orden'] ?? 100);
+        $targetBlank = isset($_POST['target_blank']) ? 1 : 0;
+        $activo = isset($_POST['activo']) ? 1 : 0;
+
+        if (!empty($codigo) && !empty($nombre)) {
+            try {
+                if ($moduloId > 0) {
+                    $estructuraModel->actualizarModulo($moduloId, $codigo, $nombre, $categoria, $rutaUrl, $icono, $color, $descripcion, $orden, $targetBlank, $activo);
+                    $_SESSION['flash_msg'] = ['texto' => "Módulo '$nombre' ($codigo) actualizado exitosamente.", 'tipo' => 'success'];
+                } else {
+                    $nuevoId = $estructuraModel->crearModulo($codigo, $nombre, $categoria, $rutaUrl, $icono, $color, $descripcion, $orden, $targetBlank, $activo);
+                    $_SESSION['flash_msg'] = ['texto' => "Nuevo módulo '$nombre' ($codigo) creado exitosamente con su acceso de Hub configurado.", 'tipo' => 'success'];
+                }
+            } catch (\Exception $e) {
+                $_SESSION['flash_msg'] = ['texto' => $e->getMessage(), 'tipo' => 'error'];
+            }
+        } else {
+            $_SESSION['flash_msg'] = ['texto' => "El código y el nombre del módulo son obligatorios.", 'tipo' => 'error'];
+        }
+        $redirectUrl = "?tab=modulos";
+    }
+    // 9. Eliminar Módulo
+    elseif ($action === 'eliminar_modulo') {
+        $moduloId = (int)($_POST['modulo_id'] ?? 0);
+        $nombreModulo = trim($_POST['nombre_modulo'] ?? '');
+        if ($moduloId > 0) {
+            try {
+                $estructuraModel->eliminarModulo($moduloId);
+                $_SESSION['flash_msg'] = ['texto' => "Módulo '$nombreModulo' eliminado correctamente del sistema.", 'tipo' => 'success'];
+            } catch (\Exception $e) {
+                $_SESSION['flash_msg'] = ['texto' => $e->getMessage(), 'tipo' => 'error'];
+            }
+        }
+        $redirectUrl = "?tab=modulos";
+    }
 
     header("Location: " . $redirectUrl);
     exit;
@@ -534,6 +652,9 @@ $subsectores = $estructuraModel->listarSubsectores();
 $roles = $estructuraModel->listarRoles();
 $modulos = $estructuraModel->listarModulosConPermisos();
 $modulosHub = $estructuraModel->listarModulosHub();
+$modulosTodos = $estructuraModel->listarModulosTodos();
+$categoriasHubExistentes = array_values(array_unique(array_filter(array_map(function($m){ return trim($m['categoria'] ?? ''); }, $modulosTodos))));
+sort($categoriasHubExistentes);
 $matrizEstructuraHub = ($tab === 'hub_matriz') ? $estructuraModel->obtenerMatrizEstructuraCompleta() : [];
 $totalPaginas = ceil($totalUsuarios / $porPagina);
 
@@ -625,6 +746,9 @@ foreach ($roles as $r) {
                 </a>
                 <a href="?tab=roles" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition <?= $tab === 'roles' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900' ?>">
                     <i class="fas fa-user-shield mr-1.5"></i> Roles (<?= count($roles) ?>)
+                </a>
+                <a href="?tab=modulos" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition <?= $tab === 'modulos' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900' ?>">
+                    <i class="fas fa-cubes mr-1.5 text-indigo-600"></i> Módulos & Apps (<?= count($modulosTodos) ?>)
                 </a>
             </div>
         </div>
@@ -1794,6 +1918,12 @@ foreach ($roles as $r) {
                             <i class="fas fa-copy"></i> Copiar Accesos entre Roles
                         </button>
 
+                        <!-- Botón Administrar / Nuevo Módulo -->
+                        <a href="?tab=modulos" 
+                           class="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition flex items-center gap-1.5 shadow-xs">
+                            <i class="fas fa-cubes"></i> Administrar Módulos & Apps
+                        </a>
+
                         <!-- Expandir / Colapsar todos -->
                         <button type="button" onclick="toggleTodosSectoresHub()" id="btnToggleTodosSectores" 
                                 class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl border border-slate-200 transition flex items-center gap-1.5">
@@ -1992,6 +2122,197 @@ foreach ($roles as $r) {
                     <?php endforeach; ?>
                 </div>
             <?php endif; ?>
+
+        <!-- ========================================== PESTAÑA: MÓDULOS & APLICACIONES (CRUD) ========================================== -->
+        <?php elseif($tab === 'modulos'): ?>
+            <?php
+                // Agrupar módulos por categoría
+                $modulosPorCategoria = [];
+                foreach ($modulosTodos as $m) {
+                    $cat = trim($m['categoria']) ?: 'General';
+                    $modulosPorCategoria[$cat][] = $m;
+                }
+                ksort($modulosPorCategoria);
+
+                $totalMods = count($modulosTodos);
+                $totalModsActivos = count(array_filter($modulosTodos, function($m){ return $m['activo'] == 1; }));
+                $totalPermisosTotal = array_sum(array_column($modulosTodos, 'cant_permisos_total'));
+                $totalSubmodsTotal = array_sum(array_column($modulosTodos, 'cant_submodulos'));
+            ?>
+
+            <!-- Header de Módulos & Controles -->
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs mb-6">
+                <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                    <div>
+                        <div class="flex items-center gap-2.5">
+                            <div class="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-lg shadow-2xs border border-indigo-100">
+                                <i class="fas fa-cubes"></i>
+                            </div>
+                            <div>
+                                <h2 class="text-base font-bold text-slate-900">Gestor de Módulos & Aplicaciones del Hub</h2>
+                                <p class="text-xs text-slate-500">Creación, edición y administración de sistemas del Hub con sus solapas y permisos internos.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap items-center gap-2.5">
+                        <!-- Buscador en tiempo real -->
+                        <div class="relative w-full sm:w-64">
+                            <i class="fas fa-search absolute left-3 top-2.5 text-slate-400 text-xs"></i>
+                            <input type="text" id="buscadorModulos" oninput="filtrarModulosEnVivo(this.value)" placeholder="Buscar módulo, código, URL..." 
+                                   class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
+                        </div>
+
+                        <!-- Botón Nuevo Módulo -->
+                        <button type="button" onclick="abrirModalCrearModulo()" 
+                                class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition flex items-center gap-1.5 shadow-xs cursor-pointer">
+                            <i class="fas fa-plus"></i> Nueva Aplicación / Módulo
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Métricas Resumen -->
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5 pt-4 border-t border-slate-100">
+                    <div class="bg-slate-50 border border-slate-200/70 rounded-xl p-3">
+                        <span class="text-[11px] font-semibold text-slate-500 block">Total Aplicaciones</span>
+                        <span class="text-lg font-bold text-slate-900"><?= $totalMods ?></span>
+                    </div>
+                    <div class="bg-emerald-50/50 border border-emerald-200/70 rounded-xl p-3">
+                        <span class="text-[11px] font-semibold text-emerald-700 block">Apps Habilitadas / Activas</span>
+                        <span class="text-lg font-bold text-emerald-800"><?= $totalModsActivos ?></span>
+                    </div>
+                    <div class="bg-indigo-50/50 border border-indigo-200/70 rounded-xl p-3">
+                        <span class="text-[11px] font-semibold text-indigo-700 block">Solapas & Permisos Totales</span>
+                        <span class="text-lg font-bold text-indigo-800"><?= $totalPermisosTotal ?></span>
+                    </div>
+                    <div class="bg-purple-50/50 border border-purple-200/70 rounded-xl p-3">
+                        <span class="text-[11px] font-semibold text-purple-700 block">Submódulos / Menús Internos</span>
+                        <span class="text-lg font-bold text-purple-800"><?= $totalSubmodsTotal ?></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Listado de Módulos Agrupados por Categoría -->
+            <div class="space-y-6" id="contenedorCategoriasModulos">
+                <?php foreach ($modulosPorCategoria as $categoriaNombre => $listaMods): ?>
+                    <div class="categoria-modulos-bloque bg-white p-5 rounded-2xl border border-slate-200 shadow-xs" data-categoria="<?= htmlspecialchars(strtolower($categoriaNombre)) ?>">
+                        <!-- Cabecera de Categoría -->
+                        <div class="flex items-center justify-between pb-3 mb-4 border-b border-slate-100">
+                            <div class="flex items-center gap-2">
+                                <span class="w-2.5 h-2.5 rounded-full bg-indigo-600"></span>
+                                <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wide">
+                                    <?= htmlspecialchars($categoriaNombre) ?>
+                                </h3>
+                                <span class="text-xs bg-slate-100 text-slate-600 border border-slate-200 px-2 py-0.5 rounded-full font-semibold">
+                                    <?= count($listaMods) ?> <?= count($listaMods) === 1 ? 'app' : 'apps' ?>
+                                </span>
+                            </div>
+                        </div>
+
+                        <!-- Grilla de Tarjetas de Módulos -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                            <?php foreach ($listaMods as $m): ?>
+                                <div class="modulo-card border border-slate-200 rounded-xl p-4 bg-white hover:border-indigo-300 hover:shadow-xs transition flex flex-col justify-between"
+                                     data-search="<?= htmlspecialchars(strtolower($m['nombre'] . ' ' . $m['codigo'] . ' ' . $m['categoria'] . ' ' . $m['ruta_url'] . ' ' . $m['descripcion'])) ?>">
+                                    
+                                    <div>
+                                        <!-- Header de la Tarjeta: Ícono, Nombre y Badges -->
+                                        <div class="flex items-start justify-between gap-3 mb-3">
+                                            <div class="flex items-center gap-3">
+                                                <div class="w-10 h-10 rounded-xl text-white flex items-center justify-center text-base shadow-xs shrink-0" 
+                                                     style="background: <?= htmlspecialchars($m['color'] ?: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)') ?>;">
+                                                    <i class="fas <?= htmlspecialchars($m['icono'] ?: 'fa-cube') ?>"></i>
+                                                </div>
+                                                <div>
+                                                    <h4 class="text-sm font-bold text-slate-900 leading-tight">
+                                                        <?= htmlspecialchars($m['nombre']) ?>
+                                                    </h4>
+                                                    <div class="flex items-center gap-1.5 mt-1">
+                                                        <span class="font-mono text-[10px] bg-slate-100 text-slate-700 font-bold px-1.5 py-0.2 rounded border border-slate-200">
+                                                            <?= htmlspecialchars($m['codigo']) ?>
+                                                        </span>
+                                                        <span class="text-[10px] text-slate-400 font-semibold">#<?= $m['orden'] ?></span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div class="flex flex-col items-end gap-1 shrink-0">
+                                                <?php if($m['activo']): ?>
+                                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
+                                                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Activo
+                                                    </span>
+                                                <?php else: ?>
+                                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">
+                                                        Inactivo
+                                                    </span>
+                                                <?php endif; ?>
+
+                                                <?php if($m['target_blank']): ?>
+                                                    <span class="text-[10px] text-sky-600 bg-sky-50 px-1.5 py-0.2 rounded border border-sky-100 font-medium" title="Abre en nueva pestaña">
+                                                        <i class="fas fa-arrow-up-right-from-square"></i> Nueva pestaña
+                                                    </span>
+                                                <?php endif; ?>
+                                            </div>
+                                        </div>
+
+                                        <!-- URL Destino -->
+                                        <div class="mb-2.5">
+                                            <div class="text-[11px] font-mono text-indigo-700 bg-indigo-50/60 border border-indigo-100/80 px-2.5 py-1 rounded-lg flex items-center justify-between">
+                                                <span class="truncate font-semibold"><i class="fas fa-link mr-1 text-indigo-400"></i><?= htmlspecialchars($m['ruta_url'] ?: 'Sin URL configurada') ?></span>
+                                                <?php if(!empty($m['ruta_url'])): ?>
+                                                    <a href="<?= htmlspecialchars($m['ruta_url']) ?>" target="_blank" class="text-indigo-400 hover:text-indigo-700 ml-1.5" title="Abrir enlace">
+                                                        <i class="fas fa-external-link-alt text-[10px]"></i>
+                                                    </a>
+                                                <?php endif; ?>
+                                            </div>
+                                        </div>
+
+                                        <!-- Descripción -->
+                                        <p class="text-xs text-slate-500 line-clamp-2 leading-relaxed mb-3">
+                                            <?= htmlspecialchars($m['descripcion'] ?: 'Sin descripción detallada.') ?>
+                                        </p>
+
+                                        <!-- Estadísticas / Conteo -->
+                                        <div class="flex items-center gap-2 text-[11px] text-slate-600 mb-4">
+                                            <span class="bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-md">
+                                                <i class="fas fa-list-check text-indigo-500 mr-1"></i> <strong><?= $m['cant_permisos_total'] ?></strong> solapas/permisos
+                                            </span>
+                                            <span class="bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-md">
+                                                <i class="fas fa-users text-indigo-500 mr-1"></i> <strong><?= $m['cant_roles_asignados'] ?></strong> roles con acceso
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <!-- Acciones de la Tarjeta -->
+                                    <div class="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+                                        <button type="button" onclick="abrirModalGestionPermisos(<?= $m['id'] ?>)" 
+                                                class="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-lg border border-indigo-200 transition flex items-center gap-1.5 cursor-pointer">
+                                            <i class="fas fa-sliders text-[11px]"></i> Solapas & Permisos (<?= $m['cant_permisos_total'] ?>)
+                                        </button>
+
+                                        <div class="flex items-center gap-1">
+                                            <button type="button" onclick="abrirModalEditarModulo(<?= $m['id'] ?>)" 
+                                                    class="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition" title="Editar Módulo">
+                                                <i class="fas fa-edit text-xs"></i>
+                                            </button>
+                                            <button type="button" onclick="confirmarEliminarModulo(<?= $m['id'] ?>, '<?= htmlspecialchars(addslashes($m['nombre'])) ?>')" 
+                                                    class="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition" title="Eliminar Módulo">
+                                                <i class="fas fa-trash-alt text-xs"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+
+            <div id="sinResultadosModulos" class="hidden text-center py-12 text-slate-400 text-xs bg-white rounded-2xl border border-slate-200">
+                <i class="fas fa-search text-slate-300 text-3xl mb-2 block"></i>
+                No se encontraron módulos que coincidan con la búsqueda.
+            </div>
         <?php endif; ?>
 
     </main>
@@ -2567,6 +2888,343 @@ foreach ($roles as $r) {
                     </button>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL: CREAR / EDITAR MÓDULO ==================== -->
+    <div id="modalModulo" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4">
+        <div class="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-sm shadow-2xs font-bold border border-indigo-100">
+                        <i class="fas fa-cube" id="modalModIconHeader"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-bold text-slate-900" id="modalModTitulo">Nueva Aplicación / Módulo</h3>
+                        <p class="text-xs text-slate-500">Configurá los datos del sistema para el Centralizador Hub.</p>
+                    </div>
+                </div>
+                <button type="button" onclick="cerrarModal('modalModulo')" class="text-slate-400 hover:text-slate-600 text-lg">&times;</button>
+            </div>
+
+            <form method="POST" id="formModulo" class="space-y-4">
+                <input type="hidden" name="action" value="guardar_modulo">
+                <input type="hidden" name="modulo_id" id="formModId" value="0">
+
+                <!-- Vista Previa de la Tarjeta en Tiempo Real -->
+                <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80">
+                    <span class="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-2">Vista previa de la tarjeta en el Hub:</span>
+                    <div class="flex items-center gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+                        <div id="previewModIconBox" class="w-10 h-10 rounded-xl text-white flex items-center justify-center text-base shadow-xs shrink-0" 
+                             style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);">
+                            <i class="fas fa-cube" id="previewModIcon"></i>
+                        </div>
+                        <div class="min-w-0 flex-1">
+                            <div class="flex items-center gap-2">
+                                <h4 class="text-xs font-bold text-slate-900 truncate" id="previewModNombre">Nombre de la Aplicación</h4>
+                                <span class="font-mono text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded border" id="previewModCodigo">CODIGO_APP</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 truncate mt-0.5" id="previewModDesc">Descripción del sistema...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Nombre y Código -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Nombre de la Aplicación *</label>
+                        <input type="text" name="nombre" id="formModNombre" required placeholder="Ej: Informe Económico" 
+                               oninput="actualizarPreviewModulo(); generarCodigoDesdeNombre(this.value);"
+                               class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Código Identificador (Único) *</label>
+                        <input type="text" name="codigo" id="formModCodigo" required placeholder="Ej: INFORME_ECONOMICO" 
+                               oninput="this.value = this.value.toUpperCase().replace(/[^A-Z0-9_]/g, ''); actualizarPreviewModulo();"
+                               class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 font-mono font-bold uppercase focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                    </div>
+                </div>
+
+                <!-- Categoría y Ruta URL -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="block text-xs font-bold text-slate-700">Categoría del Hub *</label>
+                            <button type="button" onclick="toggleNuevaCategoriaMod(true)" id="btnToggleNuevaCat" class="text-[11px] text-indigo-600 hover:text-indigo-800 hover:underline font-semibold cursor-pointer">
+                                <i class="fas fa-plus-circle text-[10px]"></i> Nueva Categoría
+                            </button>
+                        </div>
+                        
+                        <!-- Select de categorías existentes -->
+                        <div id="contSelectCategoria">
+                            <select id="formModCategoriaSelect" onchange="verificarCambioCategoria(this.value)" 
+                                    class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                                <option value="">-- Seleccionar Categoría --</option>
+                                <?php foreach($categoriasHubExistentes as $catNombre): ?>
+                                    <option value="<?= htmlspecialchars($catNombre) ?>"><?= htmlspecialchars($catNombre) ?></option>
+                                <?php endforeach; ?>
+                                <option value="__NUEVA__">➕ + Escribir Nueva Categoría...</option>
+                            </select>
+                        </div>
+
+                        <!-- Input para escribir nueva categoría -->
+                        <div id="contInputNuevaCategoria" class="hidden">
+                            <div class="flex items-center gap-1.5">
+                                <input type="text" id="formModCategoriaInput" placeholder="Nombre de la nueva categoría..." 
+                                       class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                                <button type="button" onclick="toggleNuevaCategoriaMod(false)" class="px-2.5 py-2 text-xs text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition cursor-pointer" title="Volver al desplegable">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <input type="hidden" name="categoria" id="formModCategoriaFinal" value="">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Ruta / URL de Acceso</label>
+                        <input type="text" name="ruta_url" id="formModRutaUrl" placeholder="/finanzas/informe_economico/" 
+                               class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                    </div>
+                </div>
+
+                <!-- Selector de Ícono FontAwesome -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Ícono FontAwesome</label>
+                    <div class="flex items-center gap-2 mb-2">
+                        <div class="w-8 h-8 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 flex items-center justify-center text-sm shrink-0">
+                            <i class="fas fa-cube" id="modIconoDisplay"></i>
+                        </div>
+                        <input type="text" name="icono" id="formModIcono" value="fa-cube" placeholder="fa-cube" 
+                               oninput="actualizarDisplayIcono(this.value); actualizarPreviewModulo();"
+                               class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                    </div>
+                    <!-- Chips de íconos rápidos -->
+                    <div class="flex flex-wrap gap-1.5">
+                        <?php 
+                        $iconosSugeridos = [
+                            'fa-chart-column', 'fa-table-cells', 'fa-chart-pie', 'fa-chart-line', 'fa-calculator', 
+                            'fa-dollar-sign', 'fa-wallet', 'fa-money-bill-wave', 'fa-boxes-packing', 'fa-truck', 
+                            'fa-truck-ramp-box', 'fa-store', 'fa-cart-shopping', 'fa-bag-shopping', 'fa-users', 
+                            'fa-user-shield', 'fa-id-badge', 'fa-sliders', 'fa-microchip', 'fa-laptop-code', 
+                            'fa-file-invoice-dollar', 'fa-handshake', 'fa-landmark', 'fa-shield-halved'
+                        ];
+                        foreach($iconosSugeridos as $ic): 
+                        ?>
+                            <button type="button" onclick="seleccionarIconoModulo('<?= $ic ?>')" 
+                                    class="w-7 h-7 rounded-lg border border-slate-200 hover:border-indigo-400 hover:bg-indigo-50 text-slate-600 flex items-center justify-center text-xs transition" title="<?= $ic ?>">
+                                <i class="fas <?= $ic ?>"></i>
+                            </button>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+
+                <!-- Selector de Color / Degradado -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Color / Degradado Visual</label>
+                    <input type="text" name="color" id="formModColor" value="linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" 
+                           oninput="actualizarDisplayColor(this.value); actualizarPreviewModulo();"
+                           class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 font-mono mb-2 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                    <!-- Paleta de colores rápidos -->
+                    <div class="flex flex-wrap gap-2">
+                        <?php 
+                        $coloresSugeridos = [
+                            ['Indigo & Violeta', 'linear-gradient(135deg, #4338ca 0%, #6366f1 100%)'],
+                            ['Azul Océano', 'linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%)'],
+                            ['Esmeralda / Teal', 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)'],
+                            ['Verde Éxito', 'linear-gradient(135deg, #059669 0%, #10b981 100%)'],
+                            ['Cian / Sky', 'linear-gradient(135deg, #0284c7 0%, #0ea5e9 100%)'],
+                            ['Naranja Intenso', 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)'],
+                            ['Ámbar / Dorado', 'linear-gradient(135deg, #d97706 0%, #f59e0b 100%)'],
+                            ['Púrpura Elegante', 'linear-gradient(135deg, #7c3aed 0%, #a855f7 100%)'],
+                            ['Rojo / Carmesí', 'linear-gradient(135deg, #dc2626 0%, #ef4444 100%)'],
+                            ['Pizarra / Dark', 'linear-gradient(135deg, #334155 0%, #475569 100%)']
+                        ];
+                        foreach($coloresSugeridos as $col):
+                        ?>
+                            <button type="button" onclick="seleccionarColorModulo('<?= $col[1] ?>')" 
+                                    class="h-6 px-2.5 rounded-lg text-[10px] font-bold text-white shadow-2xs transition hover:scale-105" 
+                                    style="background: <?= $col[1] ?>;" title="<?= $col[0] ?>">
+                                <?= $col[0] ?>
+                            </button>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+
+                <!-- Descripción -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Descripción del Sistema</label>
+                    <textarea name="descripcion" id="formModDesc" rows="2" placeholder="Resumen claro de la funcionalidad que se mostrará en el Hub..." 
+                              oninput="actualizarPreviewModulo()"
+                              class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"></textarea>
+                </div>
+
+                <!-- Orden, Target Blank y Activo -->
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 items-center pt-2 border-t border-slate-100">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">
+                            Orden / Posición
+                            <span class="text-[10px] font-normal text-slate-400 block">(N° menor aparece primero)</span>
+                        </label>
+                        <input type="number" name="orden" id="formModOrden" value="100" 
+                               class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                    </div>
+                    <div class="flex items-center pt-4">
+                        <label class="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700">
+                            <input type="checkbox" name="target_blank" id="formModTargetBlank" value="1" class="rounded text-indigo-600 focus:ring-indigo-500">
+                            <span>Abrir en nueva pestaña</span>
+                        </label>
+                    </div>
+                    <div class="flex items-center pt-4">
+                        <label class="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700">
+                            <input type="checkbox" name="activo" id="formModActivo" value="1" checked class="rounded text-indigo-600 focus:ring-indigo-500">
+                            <span class="text-emerald-700 font-bold">Módulo Habilitado</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="flex justify-end space-x-2 pt-4 border-t border-slate-100">
+                    <button type="button" onclick="cerrarModal('modalModulo')" class="px-4 py-2 text-xs font-medium text-slate-500 hover:text-slate-800 transition">Cancelar</button>
+                    <button type="submit" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition shadow-xs flex items-center gap-1.5">
+                        <i class="fas fa-check"></i> <span id="btnTextoGuardarModulo">Guardar Módulo</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL: GESTIÓN DE SOLAPAS & PERMISOS DE UN MÓDULO ==================== -->
+    <div id="modalGestionPermisosModulo" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4">
+        <div class="bg-white border border-slate-200 rounded-2xl max-w-3xl w-full p-6 shadow-xl max-h-[90vh] flex flex-col">
+            <!-- Header del Modal -->
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100 mb-3 shrink-0">
+                <div class="flex items-center gap-3">
+                    <div id="gestPermModalIconBox" class="w-10 h-10 rounded-xl text-white flex items-center justify-center text-base shadow-xs" style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);">
+                        <i class="fas fa-cube" id="gestPermModalIcon"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-bold text-slate-900 flex items-center gap-2">
+                            Solapas & Permisos Internos: <span id="gestPermModalNombre" class="text-indigo-600">Nombre Módulo</span>
+                        </h3>
+                        <p class="text-xs text-slate-500">
+                            Código: <strong id="gestPermModalCodigo" class="font-mono text-slate-700">CODIGO</strong> · Agregá las solapas y acciones que componen este sistema.
+                        </p>
+                    </div>
+                </div>
+                <button type="button" onclick="cerrarModal('modalGestionPermisosModulo')" class="text-slate-400 hover:text-slate-600 text-xl font-bold">&times;</button>
+            </div>
+
+            <!-- Formulario para Agregar / Editar Permiso Rápido -->
+            <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200 mb-3 shrink-0">
+                <div class="flex items-center justify-between mb-2">
+                    <h4 class="text-xs font-bold text-slate-800 flex items-center gap-1.5" id="formPermisoTitulo">
+                        <i class="fas fa-plus-circle text-indigo-600"></i> Agregar Nueva Solapa / Permiso Interno
+                    </h4>
+                    <button type="button" onclick="resetFormPermiso()" id="btnCancelarEdicionPermiso" class="hidden text-[11px] text-slate-500 hover:text-slate-800 font-semibold underline">
+                        Cancelar edición
+                    </button>
+                </div>
+                <form id="formNuevoPermiso" onsubmit="guardarPermisoModuloAjax(event)" class="space-y-2.5">
+                    <input type="hidden" id="permFormModuloId" value="0">
+                    <input type="hidden" id="permFormPermisoId" value="0">
+
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div>
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="block text-[11px] font-bold text-slate-700">Sección / Grupo *</label>
+                                <button type="button" onclick="toggleNuevaSeccionPerm(true)" id="btnToggleNuevaSec" class="text-[10px] text-indigo-600 hover:text-indigo-800 hover:underline font-semibold cursor-pointer">
+                                    <i class="fas fa-plus-circle text-[9px]"></i> Nueva Sección
+                                </button>
+                            </div>
+                            
+                            <!-- Select de secciones dinámicas -->
+                            <div id="contSelectSeccion">
+                                <select id="permFormSeccionSelect" onchange="verificarCambioSeccion(this.value)" 
+                                        class="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                                    <option value="">-- Seleccionar Sección --</option>
+                                    <option value="__NUEVA__">➕ + Escribir Nueva Sección...</option>
+                                </select>
+                            </div>
+
+                            <!-- Input para escribir nueva sección -->
+                            <div id="contInputNuevaSeccion" class="hidden">
+                                <div class="flex items-center gap-1">
+                                    <input type="text" id="permFormSeccionInput" placeholder="Nombre de la nueva sección..." 
+                                           class="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                                    <button type="button" onclick="toggleNuevaSeccionPerm(false)" class="px-2 py-1.5 text-xs text-slate-400 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition cursor-pointer" title="Volver al desplegable">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <input type="hidden" id="permFormSeccionFinal" value="">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-700 mb-1">Clave Técnica (Identificador) *</label>
+                            <input type="text" id="permFormClave" required placeholder="Ej: ie.tab.locales"
+                                   oninput="this.value = this.value.toLowerCase().replace(/[^a-z0-9_.]/g, '');"
+                                   class="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-700 mb-1">Nombre Legible *</label>
+                            <input type="text" id="permFormNombre" required placeholder="Ej: Solapa IE por Locales"
+                                   class="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                        </div>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <div class="flex-1">
+                            <input type="text" id="permFormDesc" placeholder="Descripción opcional: ej. Permite ver el informe por local propio..."
+                                   class="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                        </div>
+                        <button type="submit" id="btnGuardarPermisoAjax" class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition shadow-xs flex items-center gap-1.5 shrink-0 cursor-pointer">
+                            <i class="fas fa-save"></i> <span id="lblBtnGuardarPermiso">Guardar</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Listado de Permisos / Solapas Registradas -->
+            <div class="overflow-y-auto flex-1 pr-1 space-y-2" id="gestPermListaContenedor">
+                <div class="py-8 text-center text-slate-400">
+                    <i class="fas fa-spinner fa-spin text-2xl text-indigo-500 mb-2 block"></i>
+                    Cargando solapas y permisos...
+                </div>
+            </div>
+
+            <!-- Footer del Modal -->
+            <div class="flex justify-between items-center pt-3 border-t border-slate-100 mt-3 shrink-0">
+                <span class="text-xs text-slate-500" id="gestPermTotalContador">0 solapas registradas</span>
+                <button type="button" onclick="cerrarModal('modalGestionPermisosModulo')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition">
+                    Cerrar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL: CONFIRMAR ELIMINACIÓN DE MÓDULO ==================== -->
+    <div id="modalEliminarModulo" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4">
+        <div class="bg-white border border-slate-200 rounded-2xl max-w-sm w-full p-6 shadow-xl">
+            <div class="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mb-4 mx-auto border border-rose-100">
+                <i class="fas fa-triangle-exclamation text-xl"></i>
+            </div>
+            <h3 class="text-base font-bold text-slate-900 text-center mb-1">
+                ¿Eliminar Aplicación?
+            </h3>
+            <p class="text-xs text-slate-500 text-center mb-5">
+                Estás por eliminar el módulo <strong id="nombreModuloEliminar" class="text-slate-900 font-bold"></strong> y todas sus solapas asociadas del Hub.
+            </p>
+            <form method="POST">
+                <input type="hidden" name="action" value="eliminar_modulo">
+                <input type="hidden" name="modulo_id" id="borrarModuloId">
+                <input type="hidden" name="nombre_modulo" id="borrarModuloNombre">
+                
+                <div class="grid grid-cols-2 gap-2">
+                    <button type="button" onclick="cerrarModal('modalEliminarModulo')" class="w-full py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition cursor-pointer">
+                        Cancelar
+                    </button>
+                    <button type="submit" class="w-full py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-xl transition shadow-xs cursor-pointer">
+                        Sí, Eliminar
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -3922,6 +4580,516 @@ foreach ($roles as $r) {
                     btn.innerHTML = '<i class="fas fa-check"></i> Guardar Accesos Internos';
                     mostrarToast('Error de conexión', 'error');
                 });
+        }
+
+        // ==================== JS GESTIÓN DE MÓDULOS & APPS (CRUD) ====================
+        let currentPermModuloId = null;
+
+        function toggleNuevaCategoriaMod(mostrarInput) {
+            const contSel = document.getElementById('contSelectCategoria');
+            const contInp = document.getElementById('contInputNuevaCategoria');
+            const btnToggle = document.getElementById('btnToggleNuevaCat');
+            const sel = document.getElementById('formModCategoriaSelect');
+            const inp = document.getElementById('formModCategoriaInput');
+
+            if (mostrarInput) {
+                contSel.classList.add('hidden');
+                contInp.classList.remove('hidden');
+                btnToggle.classList.add('hidden');
+                inp.focus();
+            } else {
+                contInp.classList.add('hidden');
+                contSel.classList.remove('hidden');
+                btnToggle.classList.remove('hidden');
+                if (sel.value === '__NUEVA__') {
+                    sel.value = '';
+                }
+            }
+        }
+
+        function verificarCambioCategoria(val) {
+            if (val === '__NUEVA__') {
+                toggleNuevaCategoriaMod(true);
+            }
+        }
+
+        function abrirModalCrearModulo() {
+            document.getElementById('modalModTitulo').textContent = 'Nueva Aplicación / Módulo';
+            document.getElementById('btnTextoGuardarModulo').textContent = 'Crear Módulo';
+            document.getElementById('formModId').value = '0';
+            document.getElementById('formModNombre').value = '';
+            document.getElementById('formModCodigo').value = '';
+            document.getElementById('formModCodigo').readOnly = false;
+            
+            toggleNuevaCategoriaMod(false);
+            const selCat = document.getElementById('formModCategoriaSelect');
+            if (selCat) {
+                selCat.value = selCat.options.length > 1 ? selCat.options[1].value : '';
+            }
+            document.getElementById('formModCategoriaInput').value = '';
+            document.getElementById('formModCategoriaFinal').value = '';
+
+            document.getElementById('formModRutaUrl').value = '';
+            document.getElementById('formModIcono').value = 'fa-cube';
+            document.getElementById('formModColor').value = 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)';
+            document.getElementById('formModDesc').value = '';
+            document.getElementById('formModOrden').value = '100';
+            document.getElementById('formModTargetBlank').checked = false;
+            document.getElementById('formModActivo').checked = true;
+
+            actualizarDisplayIcono('fa-cube');
+            actualizarDisplayColor('linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)');
+            actualizarPreviewModulo();
+            abrirModal('modalModulo');
+        }
+
+        function abrirModalEditarModulo(moduloId) {
+            const formData = new FormData();
+            formData.append('ajax', '1');
+            formData.append('action', 'obtener_modulo');
+            formData.append('modulo_id', moduloId);
+
+            fetch('', { method: 'POST', body: formData })
+                .then(r => r.json())
+                .then(res => {
+                    if (res.ok && res.modulo) {
+                        const m = res.modulo;
+                        document.getElementById('modalModTitulo').textContent = 'Editar Módulo: ' + m.nombre;
+                        document.getElementById('btnTextoGuardarModulo').textContent = 'Guardar Cambios';
+                        document.getElementById('formModId').value = m.id;
+                        document.getElementById('formModNombre').value = m.nombre;
+                        document.getElementById('formModCodigo').value = m.codigo;
+                        
+                        const cat = m.categoria || 'General';
+                        const sel = document.getElementById('formModCategoriaSelect');
+                        let existeEnSelect = false;
+                        for (let i = 0; i < sel.options.length; i++) {
+                            if (sel.options[i].value === cat) {
+                                existeEnSelect = true;
+                                break;
+                            }
+                        }
+
+                        if (existeEnSelect) {
+                            toggleNuevaCategoriaMod(false);
+                            sel.value = cat;
+                            document.getElementById('formModCategoriaInput').value = '';
+                        } else {
+                            toggleNuevaCategoriaMod(true);
+                            sel.value = '__NUEVA__';
+                            document.getElementById('formModCategoriaInput').value = cat;
+                        }
+                        document.getElementById('formModCategoriaFinal').value = cat;
+
+                        document.getElementById('formModRutaUrl').value = m.ruta_url || '';
+                        document.getElementById('formModIcono').value = m.icono || 'fa-cube';
+                        document.getElementById('formModColor').value = m.color || 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)';
+                        document.getElementById('formModDesc').value = m.descripcion || '';
+                        document.getElementById('formModOrden').value = m.orden || 100;
+                        document.getElementById('formModTargetBlank').checked = (m.target_blank == 1);
+                        document.getElementById('formModActivo').checked = (m.activo == 1);
+
+                        actualizarDisplayIcono(m.icono || 'fa-cube');
+                        actualizarDisplayColor(m.color || 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)');
+                        actualizarPreviewModulo();
+                        abrirModal('modalModulo');
+                    } else {
+                        showToast(res.error || 'Error al obtener datos del módulo', 'error');
+                    }
+                })
+                .catch(() => showToast('Error de conexión', 'error'));
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const formMod = document.getElementById('formModulo');
+            if (formMod) {
+                formMod.addEventListener('submit', function(e) {
+                    const contInp = document.getElementById('contInputNuevaCategoria');
+                    const esNueva = !contInp.classList.contains('hidden');
+                    let catFinal = '';
+                    if (esNueva) {
+                        catFinal = document.getElementById('formModCategoriaInput').value.trim();
+                    } else {
+                        const sel = document.getElementById('formModCategoriaSelect');
+                        catFinal = sel.value;
+                    }
+
+                    if (!catFinal || catFinal === '__NUEVA__') {
+                        e.preventDefault();
+                        showToast('Por favor seleccioná o escribí una categoría para el módulo', 'error');
+                        return false;
+                    }
+
+                    document.getElementById('formModCategoriaFinal').value = catFinal;
+                });
+            }
+        });
+
+        function confirmarEliminarModulo(moduloId, nombreModulo) {
+            document.getElementById('borrarModuloId').value = moduloId;
+            document.getElementById('borrarModuloNombre').value = nombreModulo;
+            document.getElementById('nombreModuloEliminar').textContent = nombreModulo;
+            abrirModal('modalEliminarModulo');
+        }
+
+        function seleccionarIconoModulo(iconoClass) {
+            document.getElementById('formModIcono').value = iconoClass;
+            actualizarDisplayIcono(iconoClass);
+            actualizarPreviewModulo();
+        }
+
+        function actualizarDisplayIcono(iconoClass) {
+            const cleanIcon = iconoClass.trim() || 'fa-cube';
+            const disp = document.getElementById('modIconoDisplay');
+            if (disp) disp.className = 'fas ' + cleanIcon;
+            const hdr = document.getElementById('modalModIconHeader');
+            if (hdr) hdr.className = 'fas ' + cleanIcon;
+        }
+
+        function seleccionarColorModulo(colorCss) {
+            document.getElementById('formModColor').value = colorCss;
+            actualizarDisplayColor(colorCss);
+            actualizarPreviewModulo();
+        }
+
+        function actualizarDisplayColor(colorCss) {
+            const box = document.getElementById('previewModIconBox');
+            if (box) box.style.background = colorCss;
+        }
+
+        function actualizarPreviewModulo() {
+            const nombre = document.getElementById('formModNombre').value || 'Nombre de la Aplicación';
+            const codigo = document.getElementById('formModCodigo').value || 'CODIGO_APP';
+            const desc = document.getElementById('formModDesc').value || 'Descripción del sistema...';
+            const icono = document.getElementById('formModIcono').value || 'fa-cube';
+            const color = document.getElementById('formModColor').value || 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)';
+
+            document.getElementById('previewModNombre').textContent = nombre;
+            document.getElementById('previewModCodigo').textContent = codigo;
+            document.getElementById('previewModDesc').textContent = desc;
+            document.getElementById('previewModIcon').className = 'fas ' + icono;
+            document.getElementById('previewModIconBox').style.background = color;
+        }
+
+        function generarCodigoDesdeNombre(val) {
+            // Solo autogenerar si estamos creando un nuevo módulo (id === 0)
+            const id = document.getElementById('formModId').value;
+            if (id === '0' || !id) {
+                const slug = val.toUpperCase()
+                    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+                    .replace(/[^A-Z0-9\s]/g, '')
+                    .trim()
+                    .replace(/\s+/g, '_');
+                document.getElementById('formModCodigo').value = slug;
+                actualizarPreviewModulo();
+            }
+        }
+
+        function filtrarModulosEnVivo(val) {
+            const q = val.toLowerCase().trim();
+            const cards = document.querySelectorAll('.modulo-card');
+            cards.forEach(c => {
+                const searchData = c.getAttribute('data-search') || '';
+                const match = (!q || searchData.includes(q));
+                c.classList.toggle('hidden', !match);
+            });
+
+            // Ocultar categorías vacías
+            let totalVisibles = 0;
+            document.querySelectorAll('.categoria-modulos-bloque').forEach(bloque => {
+                const hayVisibles = Array.from(bloque.querySelectorAll('.modulo-card')).some(c => !c.classList.contains('hidden'));
+                bloque.classList.toggle('hidden', !hayVisibles && q !== '');
+                if (hayVisibles) totalVisibles++;
+            });
+
+            const sinRes = document.getElementById('sinResultadosModulos');
+            if (sinRes) {
+                sinRes.classList.toggle('hidden', totalVisibles > 0 || q === '');
+            }
+        }
+
+        // ==================== JS GESTIÓN DE PERMISOS / SOLAPAS ====================
+
+        function abrirModalGestionPermisos(moduloId) {
+            currentPermModuloId = moduloId;
+            document.getElementById('permFormModuloId').value = moduloId;
+            resetFormPermiso();
+            cargarPermisosModuloEnModal(moduloId);
+            abrirModal('modalGestionPermisosModulo');
+        }
+
+        function cargarPermisosModuloEnModal(moduloId) {
+            const cont = document.getElementById('gestPermListaContenedor');
+            cont.innerHTML = `
+                <div class="py-8 text-center text-slate-400">
+                    <i class="fas fa-spinner fa-spin text-2xl text-indigo-500 mb-2 block"></i>
+                    Cargando solapas y permisos...
+                </div>
+            `;
+
+            const formData = new FormData();
+            formData.append('ajax', '1');
+            formData.append('action', 'listar_permisos_modulo');
+            formData.append('modulo_id', moduloId);
+
+            fetch('', { method: 'POST', body: formData })
+                .then(r => r.json())
+                .then(res => {
+                    if (res.ok) {
+                        const m = res.modulo;
+                        document.getElementById('gestPermModalNombre').textContent = m.nombre;
+                        document.getElementById('gestPermModalCodigo').textContent = m.codigo;
+                        document.getElementById('gestPermModalIcon').className = 'fas ' + (m.icono || 'fa-cube');
+                        document.getElementById('gestPermModalIconBox').style.background = m.color || 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)';
+                        
+                        renderizarPermisosModuloEnModal(res.permisos || []);
+                    } else {
+                        cont.innerHTML = `<div class="p-4 text-center text-rose-500 text-xs">${res.error || 'Error al cargar'}</div>`;
+                    }
+                })
+                .catch(() => {
+                    cont.innerHTML = `<div class="p-4 text-center text-rose-500 text-xs">Error de conexión</div>`;
+                });
+        }
+
+        function toggleNuevaSeccionPerm(mostrarInput) {
+            const contSel = document.getElementById('contSelectSeccion');
+            const contInp = document.getElementById('contInputNuevaSeccion');
+            const btnToggle = document.getElementById('btnToggleNuevaSec');
+            const sel = document.getElementById('permFormSeccionSelect');
+            const inp = document.getElementById('permFormSeccionInput');
+
+            if (mostrarInput) {
+                contSel.classList.add('hidden');
+                contInp.classList.remove('hidden');
+                btnToggle.classList.add('hidden');
+                inp.focus();
+            } else {
+                contInp.classList.add('hidden');
+                contSel.classList.remove('hidden');
+                btnToggle.classList.remove('hidden');
+                if (sel.value === '__NUEVA__') {
+                    sel.value = '';
+                }
+            }
+        }
+
+        function verificarCambioSeccion(val) {
+            if (val === '__NUEVA__') {
+                toggleNuevaSeccionPerm(true);
+            }
+        }
+
+        function renderizarPermisosModuloEnModal(permisos) {
+            const cont = document.getElementById('gestPermListaContenedor');
+            document.getElementById('gestPermTotalContador').textContent = `${permisos.length} solapas / permisos registrados`;
+
+            // Recopilar las secciones existentes de este módulo y sugerencias
+            const seccionesSet = new Set();
+            permisos.forEach(p => {
+                if (p.seccion && p.seccion !== 'Hub' && p.seccion !== 'General') {
+                    seccionesSet.add(p.seccion);
+                }
+            });
+            ['Vistas Principales', 'Informes', 'Ingresos', 'Egresos', 'Proveedores', 'Comercio Exterior', 'Edición', 'Configuración', 'General'].forEach(s => seccionesSet.add(s));
+
+            const selSec = document.getElementById('permFormSeccionSelect');
+            if (selSec) {
+                let secHtml = '<option value="">-- Seleccionar Sección --</option>';
+                seccionesSet.forEach(s => {
+                    secHtml += `<option value="${escapeJsStr(s)}">${s}</option>`;
+                });
+                secHtml += '<option value="__NUEVA__">➕ + Escribir Nueva Sección...</option>';
+                selSec.innerHTML = secHtml;
+                if (seccionesSet.size > 0) {
+                    selSec.value = Array.from(seccionesSet)[0];
+                }
+            }
+            toggleNuevaSeccionPerm(false);
+
+            if (permisos.length === 0) {
+                cont.innerHTML = `
+                    <div class="p-6 text-center text-slate-400 bg-slate-50 rounded-xl border border-slate-200 text-xs">
+                        <i class="fas fa-layer-group text-slate-300 text-2xl mb-2 block"></i>
+                        No hay solapas o permisos registrados aún para este módulo. Podés agregarlos usando el formulario superior.
+                    </div>
+                `;
+                return;
+            }
+
+            let html = '';
+            permisos.forEach(p => {
+                const esRaiz = p.es_raiz_hub;
+                html += `
+                    <div class="flex items-center justify-between p-3 rounded-xl border ${esRaiz ? 'bg-indigo-50/40 border-indigo-200' : 'bg-white border-slate-200'} hover:border-indigo-300 transition gap-3">
+                        <div class="min-w-0 flex-1">
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <span class="px-2 py-0.5 rounded text-[10px] font-bold ${esRaiz ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 border border-slate-200'}">
+                                    [${p.seccion || 'General'}]
+                                </span>
+                                <span class="text-xs font-bold text-slate-900">${p.nombre}</span>
+                                <span class="text-[10px] font-mono text-indigo-700 bg-indigo-50 border border-indigo-100 px-1.5 py-0.2 rounded font-semibold">${p.clave}</span>
+                                ${esRaiz ? '<span class="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.2 rounded">Acceso Principal Hub</span>' : ''}
+                            </div>
+                            ${p.descripcion_limpia ? `<p class="text-[11px] text-slate-500 mt-0.5 line-clamp-1">${p.descripcion_limpia}</p>` : ''}
+                        </div>
+
+                        <div class="flex items-center gap-2 shrink-0">
+                            <span class="text-[10px] text-slate-500 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded font-medium">
+                                <i class="fas fa-users text-indigo-500 mr-1"></i> ${p.cant_roles_con_permiso || 0} roles
+                            </span>
+                            <button type="button" onclick="abrirEdicionPermiso(${p.id}, '${escapeJsStr(p.clave)}', '${escapeJsStr(p.nombre)}', '${escapeJsStr(p.seccion)}', '${escapeJsStr(p.descripcion_limpia)}')" 
+                                    class="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition" title="Editar Solapa">
+                                <i class="fas fa-edit text-xs"></i>
+                            </button>
+                            ${!esRaiz ? `
+                                <button type="button" onclick="eliminarPermisoModuloAjax(${p.id})" 
+                                        class="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition" title="Eliminar Solapa">
+                                    <i class="fas fa-trash-alt text-xs"></i>
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            });
+
+            cont.innerHTML = html;
+        }
+
+        function escapeJsStr(str) {
+            if (!str) return '';
+            return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+        }
+
+        function abrirEdicionPermiso(id, clave, nombre, seccion, desc) {
+            document.getElementById('permFormPermisoId').value = id;
+            document.getElementById('permFormClave').value = clave;
+            document.getElementById('permFormNombre').value = nombre;
+            document.getElementById('permFormDesc').value = desc || '';
+
+            const sec = seccion || 'General';
+            const selSec = document.getElementById('permFormSeccionSelect');
+            let existe = false;
+            for (let i = 0; i < selSec.options.length; i++) {
+                if (selSec.options[i].value === sec) {
+                    existe = true;
+                    break;
+                }
+            }
+            if (existe) {
+                toggleNuevaSeccionPerm(false);
+                selSec.value = sec;
+                document.getElementById('permFormSeccionInput').value = '';
+            } else {
+                toggleNuevaSeccionPerm(true);
+                selSec.value = '__NUEVA__';
+                document.getElementById('permFormSeccionInput').value = sec;
+            }
+
+            document.getElementById('formPermisoTitulo').innerHTML = '<i class="fas fa-edit text-indigo-600"></i> Editando Solapa / Permiso';
+            document.getElementById('lblBtnGuardarPermiso').textContent = 'Guardar Cambios';
+            document.getElementById('btnCancelarEdicionPermiso').classList.remove('hidden');
+        }
+
+        function resetFormPermiso() {
+            document.getElementById('permFormPermisoId').value = '0';
+            document.getElementById('permFormClave').value = '';
+            document.getElementById('permFormNombre').value = '';
+            document.getElementById('permFormDesc').value = '';
+
+            toggleNuevaSeccionPerm(false);
+            const selSec = document.getElementById('permFormSeccionSelect');
+            if (selSec && selSec.options.length > 1) {
+                selSec.value = selSec.options[1].value;
+            }
+            document.getElementById('permFormSeccionInput').value = '';
+
+            document.getElementById('formPermisoTitulo').innerHTML = '<i class="fas fa-plus-circle text-indigo-600"></i> Agregar Nueva Solapa / Permiso Interno';
+            document.getElementById('lblBtnGuardarPermiso').textContent = 'Guardar';
+            document.getElementById('btnCancelarEdicionPermiso').classList.add('hidden');
+        }
+
+        function guardarPermisoModuloAjax(e) {
+            e.preventDefault();
+            const moduloId = document.getElementById('permFormModuloId').value;
+            const permisoId = document.getElementById('permFormPermisoId').value;
+            const clave = document.getElementById('permFormClave').value.trim();
+            const nombre = document.getElementById('permFormNombre').value.trim();
+            const desc = document.getElementById('permFormDesc').value.trim();
+
+            const contInp = document.getElementById('contInputNuevaSeccion');
+            const esNueva = !contInp.classList.contains('hidden');
+            let seccion = '';
+            if (esNueva) {
+                seccion = document.getElementById('permFormSeccionInput').value.trim();
+            } else {
+                seccion = document.getElementById('permFormSeccionSelect').value;
+            }
+
+            if (!seccion || seccion === '__NUEVA__') {
+                showToast('Por favor seleccioná o escribí la sección o grupo', 'error');
+                return;
+            }
+
+            if (!clave || !nombre) {
+                showToast('Completá la clave y el nombre de la solapa', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('btnGuardarPermisoAjax');
+            btn.disabled = true;
+
+            const isEdit = (permisoId && permisoId !== '0');
+            const formData = new FormData();
+            formData.append('ajax', '1');
+            formData.append('action', isEdit ? 'actualizar_permiso_modulo' : 'crear_permiso_modulo');
+            formData.append('modulo_id', moduloId);
+            if (isEdit) formData.append('permiso_id', permisoId);
+            formData.append('clave', clave);
+            formData.append('nombre', nombre);
+            formData.append('seccion', seccion);
+            formData.append('descripcion', desc);
+
+            fetch('', { method: 'POST', body: formData })
+                .then(r => r.json())
+                .then(res => {
+                    btn.disabled = false;
+                    if (res.ok) {
+                        showToast(res.mensaje || 'Solapa guardada correctamente');
+                        resetFormPermiso();
+                        renderizarPermisosModuloEnModal(res.permisos || []);
+                    } else {
+                        showToast(res.error || 'Error al guardar solapa', 'error');
+                    }
+                })
+                .catch(() => {
+                    btn.disabled = false;
+                    showToast('Error de conexión', 'error');
+                });
+        }
+
+        function eliminarPermisoModuloAjax(permisoId) {
+            if (!confirm('¿Estás seguro de que deseás eliminar esta solapa / permiso? Se revocarán los accesos asignados.')) {
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('ajax', '1');
+            formData.append('action', 'eliminar_permiso_modulo');
+            formData.append('modulo_id', currentPermModuloId);
+            formData.append('permiso_id', permisoId);
+
+            fetch('', { method: 'POST', body: formData })
+                .then(r => r.json())
+                .then(res => {
+                    if (res.ok) {
+                        showToast(res.mensaje || 'Solapa eliminada correctamente');
+                        renderizarPermisosModuloEnModal(res.permisos || []);
+                    } else {
+                        showToast(res.error || 'Error al eliminar solapa', 'error');
+                    }
+                })
+                .catch(() => showToast('Error de conexión', 'error'));
         }
     </script>
 </body>
