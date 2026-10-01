@@ -482,6 +482,70 @@ class Estructura {
                 }
             }
         }
+
+        $this->sembrarPermisosNodo();
+    }
+
+    public function sembrarPermisosNodo() {
+        $permisosNodo = [
+            ['tiempo.ver', 'Acceso a Planificación de Vacaciones', '[Planificación de Vacaciones] Permite visualizar el calendario general de vacaciones y estado de saldos'],
+            ['vacaciones.solicitar', 'Solicitar Vacaciones de Personal', '[Planificación de Vacaciones] Permite cargar y planificar tramos de vacaciones para el personal a cargo'],
+            ['vacaciones.modificar', 'Solicitar Modificación / Reprogramación', '[Planificación de Vacaciones] Permite solicitar cancelaciones, cambios de fechas y resolver rechazos'],
+            ['tiempo.aprobar', 'Aprobar Solicitudes Comerciales (Etapa 2)', '[Planificación de Vacaciones] Aprobación formal de tramos de vacaciones para Supervisión / Dirección'],
+            ['vacaciones.cobertura_ver', 'Matriz de Cobertura y Dotación Mínima', '[Planificación de Vacaciones] Acceso a la solapa de matriz de cobertura, cupos y dotación por local'],
+            ['vacaciones.propio_ver', 'Ver Mis Propias Vacaciones', '[Planificación de Vacaciones] Consulta de saldo de vacaciones y períodos propios del empleado'],
+            ['vacaciones.configurar', 'Configuración General de Vacaciones', '[Planificación de Vacaciones] Parámetros anuales, reglas de cobertura y carga de días de años anteriores'],
+
+            ['tiempo.ausencias_ver', 'Acceso y Consulta de Ausencias', '[Gestión de Ausencias] Visualización de inasistencias repentinas y programadas del personal'],
+            ['tiempo.ausencias_cargar', 'Cargar / Solicitar Ausencias', '[Gestión de Ausencias] Carga de ausencias repentinas del día y solicitud de ausencias programadas con certificado'],
+            ['tiempo.ausencias_aprobar', 'Aprobación Comercial de Ausencias', '[Gestión de Ausencias] 1ª Validación comercial de ausencias para gestión de cobertura y reemplazos'],
+            ['tiempo.ausencias_rrhh', 'Validación Médica y Dictamen RRHH', '[Gestión de Ausencias] Revisión de certificados médicos, justificación y dictamen de descuento'],
+
+            ['tiempo.permisos_ver', 'Acceso y Consulta de Permisos', '[Gestión de Permisos] Visualización del registro de permisos de locales comerciales y turnos'],
+            ['tiempo.permisos_solicitar', 'Solicitar / Cargar Permisos', '[Gestión de Permisos] Solicitud de permisos programados y de urgencia con esquema de compensación'],
+            ['tiempo.permisos_validar_local', '1ª Validación de Permisos (Encargadas)', '[Gestión de Permisos] Validación inicial del local y verificación de compensación de horas'],
+            ['tiempo.permisos_autorizar_comercial', '2ª Autorización Final Comercial / RRHH', '[Gestión de Permisos] Autorización definitiva por Comercial/Supervisoras y control de plazos'],
+
+            ['tiempo.planificacion_ver', 'Planificación Horaria y Turnos', '[Gestión de Tiempo y Turnos] Visualización y gestión de grillas horarias semanales y mensuales'],
+            ['tiempo.planificacion_editar', 'Editar Planificación Horaria', '[Gestión de Tiempo y Turnos] Crear, modificar y guardar asignaciones de turnos'],
+            ['tiempo.distribucion_ver', 'Distribución de Horas y Curvas', '[Gestión de Tiempo y Turnos] Análisis de cobertura horaria y curvas de dotación'],
+            ['tiempo.fichadas_ver', 'Control de Fichadas y Asistencia', '[Gestión de Tiempo y Turnos] Consulta de marcas de reloj y fichadas biométricas'],
+            ['tiempo.fichadas_sincronizar', 'Sincronizar Relojes Biométricos', '[Gestión de Tiempo y Turnos] Sincronización manual de registros ZKTeco'],
+            ['homeoffice.fichar', 'Fichada Home Office con Foto', '[Gestión de Tiempo y Turnos] Registro seguro de ingreso y egreso remoto con verificación fotográfica'],
+
+            ['personas.ver', 'Fichas de Personal y Legajos', '[Personas y Estructura] Directorio general de colaboradores, legajo 360° y datos de contacto'],
+            ['estructura.ver', 'Organigrama y Jerarquías', '[Personas y Estructura] Visualización de la estructura organizacional, sectores, áreas y locales'],
+            ['puestos.ver', 'Catálogo de Puestos', '[Personas y Estructura] Consulta de descriptivos de puestos y perfiles de rol'],
+
+            ['liquidacion.ver', 'Consulta de Liquidación y Novedades', '[Liquidación y Novedades] Acceso al módulo de novedades, comisiones y anticipos salariales'],
+            ['liquidacion.pvc_ver', 'Plan de Ventas y Comisiones (PVC)', '[Liquidación y Novedades] Control y cálculo del plan de ventas y comisiones'],
+            ['liquidacion.anticipos_ver', 'Anticipos de Sueldo', '[Liquidación y Novedades] Consulta y gestión de anticipos salariales'],
+            ['liquidacion.cerrar', 'Cierre de Período y Exportación', '[Liquidación y Novedades] Cierre mensual de novedades y generación de asiento contable'],
+
+            ['analisis.ver', 'Métricas e Indicadores de Gestión', '[Análisis e Indicadores] Reportes y tableros analíticos de capital humano y dotación'],
+            ['analisis.costo_ver', 'Costo de Personal', '[Análisis e Indicadores] Reporte analítico de costos laborales y masa salarial'],
+            ['analisis.ausentismo_ver', 'Índice de Ausentismo', '[Análisis e Indicadores] Tasa de ausentismo, motivos frecuentes y estadísticas comparativas'],
+
+            ['config.ver', 'Ver Configuración NODO', '[Configuración NODO] Consulta de parámetros y tablas maestras'],
+            ['config.editar', 'Gestión de Motivos y Reglas', '[Configuración NODO] Alta y edición de motivos estandarizados y reglas de negocio'],
+
+            ['hub.app.nodo', 'Acceso a NODO en Hub', '[Hub] Plataforma centralizada de gestión de capital humano, control de tiempo, licencias y asistencias.']
+        ];
+
+        foreach ($permisosNodo as $p) {
+            $sql = "IF EXISTS (SELECT 1 FROM FP_PERMISOS WHERE modulo_id = 1 AND clave = ?)
+                    BEGIN
+                        UPDATE FP_PERMISOS SET nombre = ?, descripcion = ? WHERE modulo_id = 1 AND clave = ?
+                    END
+                    ELSE
+                    BEGIN
+                        INSERT INTO FP_PERMISOS (modulo_id, clave, nombre, descripcion) VALUES (1, ?, ?, ?)
+                    END";
+            sqlsrv_query($this->db, $sql, [
+                $p[0], $p[1], $p[2], $p[0],
+                $p[0], $p[1], $p[2]
+            ]);
+        }
     }
 
     // ==================== GESTIÓN DE MÓDULOS & APPS (CRUD) ====================
