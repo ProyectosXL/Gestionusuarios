@@ -453,6 +453,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'cod_client' => trim($_POST['cod_client'] ?? ''),
             'nro_sucursal' => $_POST['nro_sucursal'] ?? null,
             'cod_vendedor' => trim($_POST['cod_vendedor'] ?? ''),
+            'usuario_tango' => trim($_POST['usuario_tango'] ?? ''),
             'activo' => isset($_POST['activo']) ? 1 : 0
         ];
 
@@ -2651,7 +2652,7 @@ foreach ($roles as $r) {
 
     <!-- Modal Crear / Editar Usuario Completo -->
     <div id="modalUsuario" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4">
-        <div class="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
+        <div class="bg-white border border-slate-200 rounded-3xl max-w-4xl w-full p-6 sm:p-8 shadow-2xl max-h-[92vh] overflow-y-auto">
             <h3 class="text-base font-bold text-slate-900 mb-1 flex items-center" id="tituloModalUsuario">
                 <i class="fas fa-user-plus text-indigo-600 mr-2"></i> Nuevo Usuario
             </h3>
@@ -2728,11 +2729,11 @@ foreach ($roles as $r) {
                         <span class="flex items-center gap-1.5"><i class="fas fa-sliders text-indigo-600"></i> Parámetros de Alcance & Negocio</span>
                         <span id="badgeAlcance" class="text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-md font-semibold">Configuración de Alcance</span>
                     </h4>
-                    <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
                         <div>
                             <label class="block text-[11px] font-semibold text-slate-700 mb-1">Tipo / Perfil</label>
                             <input type="text" name="tipo" id="formTipo" placeholder="LOCAL_PROPIO" list="listaTiposDisponibles"
-                                   class="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                                   class="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
                             <datalist id="listaTiposDisponibles">
                                 <option value="LOCAL_PROPIO">
                                 <option value="FRANQUICIA">
@@ -2751,19 +2752,30 @@ foreach ($roles as $r) {
                         <div>
                             <label class="block text-[11px] font-semibold text-slate-700 mb-1" id="lblCodClient">Cód. Cliente / Cuenta</label>
                             <input type="text" name="cod_client" id="formCodClient" placeholder="EJ: MAPEON" 
-                                   class="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-mono uppercase focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                                   class="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 font-mono uppercase focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
                         </div>
                         <div>
                             <label class="block text-[11px] font-semibold text-slate-700 mb-1" id="lblNroSucursal">Nro Sucursal / Depósito</label>
                             <input type="number" name="nro_sucursal" id="formNroSucursal" placeholder="EJ: 200" 
-                                   class="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                                   class="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
                         </div>
                         <div>
                             <label class="block text-[11px] font-semibold text-slate-700 mb-1" id="lblCodVendedor">
                                 <span class="text-teal-700 font-bold">Cód. Vendedor (Vend)</span>
                             </label>
                             <input type="text" name="cod_vendedor" id="formCodVendedor" placeholder="EJ: Z4" 
-                                   class="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-mono uppercase focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                                   class="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 font-mono uppercase focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                        </div>
+                        <div class="sm:col-span-2 lg:col-span-2">
+                            <label class="block text-[11px] font-semibold text-slate-700 mb-1" id="lblUsuarioTango">
+                                <span class="text-amber-800 font-bold"><i class="fas fa-signature text-amber-500 mr-1"></i> Usuario Tango (Firma & Autorizaciones OC)</span>
+                            </label>
+                            <div class="relative">
+                                <input type="text" name="usuario_tango" id="formUsuarioTango" placeholder="EJ: DANM, SilviaF, LUCAST, JOHANAB" 
+                                       class="w-full bg-amber-50/40 border border-amber-200 rounded-lg px-3 py-2 text-xs text-slate-800 font-mono font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
+                                       title="Usuario operativo histórico de Tango para firma y autorizaciones de órdenes de compra">
+                                <span class="text-[10px] text-slate-400 mt-1 block">Usuario ERP histórico con el que se le asignan y autoriza las órdenes de compra</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -2774,10 +2786,10 @@ foreach ($roles as $r) {
                         <span class="flex items-center gap-1.5"><i class="fas fa-sitemap text-indigo-600"></i> Asignación Estructural & Rol Operativo</span>
                         <span class="text-[10px] bg-slate-200 text-slate-700 px-2 py-0.5 rounded-md font-semibold">Organización</span>
                     </h4>
-                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                         <div>
                             <label class="block text-[11px] font-semibold text-slate-600 mb-1">Sector</label>
-                            <select name="sector_id" id="formSectorId" onchange="filtrarSubsectoresPorSector()" class="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700">
+                            <select name="sector_id" id="formSectorId" onchange="filtrarSubsectoresPorSector()" class="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
                                 <option value="">Sin Sector</option>
                                 <?php foreach($sectores as $s): ?>
                                     <option value="<?= $s['id'] ?>"><?= htmlspecialchars($s['nombre']) ?></option>
@@ -2786,7 +2798,7 @@ foreach ($roles as $r) {
                         </div>
                         <div>
                             <label class="block text-[11px] font-semibold text-slate-600 mb-1">Subsector</label>
-                            <select name="subsector_id" id="formSubsectorId" onchange="filtrarRolesPorSubsector()" class="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700">
+                            <select name="subsector_id" id="formSubsectorId" onchange="filtrarRolesPorSubsector()" class="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
                                 <option value="">Sin Subsector</option>
                                 <?php foreach($subsectores as $sub): ?>
                                     <option value="<?= $sub['id'] ?>" data-sector="<?= $sub['sector_id'] ?>"><?= htmlspecialchars($sub['nombre']) ?></option>
@@ -2795,7 +2807,7 @@ foreach ($roles as $r) {
                         </div>
                         <div>
                             <label class="block text-[11px] font-semibold text-slate-600 mb-1">Rol Operativo</label>
-                            <select name="rol_id" id="formRolId" class="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700">
+                            <select name="rol_id" id="formRolId" class="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
                                 <option value="">Sin Rol Asignado</option>
                                 <?php foreach($roles as $r): ?>
                                     <option value="<?= $r['id'] ?>"><?= htmlspecialchars($r['nombre']) ?></option>
@@ -4057,6 +4069,7 @@ foreach ($roles as $r) {
             document.getElementById('formCodClient').value = '';
             document.getElementById('formNroSucursal').value = '';
             document.getElementById('formCodVendedor').value = '';
+            document.getElementById('formUsuarioTango').value = '';
             document.getElementById('formActivo').checked = true;
             toggleCategoria();
             abrirModal('modalUsuario');
@@ -4086,6 +4099,7 @@ foreach ($roles as $r) {
             document.getElementById('formCodClient').value = u.cod_client || '';
             document.getElementById('formNroSucursal').value = u.nro_sucursal || '';
             document.getElementById('formCodVendedor').value = u.cod_vendedor || '';
+            document.getElementById('formUsuarioTango').value = u.usuario_tango || '';
             document.getElementById('formActivo').checked = (u.activo == 1);
             toggleCategoria();
             abrirModal('modalUsuario');

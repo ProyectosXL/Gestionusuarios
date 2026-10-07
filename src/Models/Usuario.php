@@ -15,6 +15,7 @@ class Usuario {
         $sql = "SELECT u.id, u.legacy_id, u.username, u.password, u.password_plain, u.nombre_completo, u.email, 
                        u.categoria_usuario, u.tipo, u.permisos_legacy, u.cod_client, u.nro_sucursal, u.nro_sucurs, u.legajo, u.cod_vendedor, u.activo, 
                        u.sector_id, u.subsector_id, u.rol_id, u.ultimo_login, u.created_at,
+                       u.usuario_tango,
                        u.relevamiento_estado, u.relevamiento_obs, u.relevamiento_usuario, u.relevamiento_fecha,
                        s.nombre as sector_nombre, sub.nombre as subsector_nombre, r.nombre as rol_nombre
                 FROM FP_SOF_USUARIOS u
@@ -127,8 +128,8 @@ class Usuario {
     public function crearUsuario($datos) {
         $sql = "INSERT INTO FP_SOF_USUARIOS (
             username, password, password_plain, nombre_completo, email, categoria_usuario, tipo,
-            sector_id, subsector_id, rol_id, cod_client, nro_sucursal, nro_sucurs, legajo, cod_vendedor, activo, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE())";
+            sector_id, subsector_id, rol_id, cod_client, nro_sucursal, nro_sucurs, legajo, cod_vendedor, usuario_tango, activo, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE())";
 
         $pass = trim($datos['password'] ?? '123456');
         $categoria = trim($datos['categoria_usuario'] ?? 'PERSONAL');
@@ -137,6 +138,7 @@ class Usuario {
         $nroSuc = !empty($datos['nro_sucursal']) ? (int)$datos['nro_sucursal'] : null;
         $codVend = !empty($datos['cod_vendedor']) ? trim($datos['cod_vendedor']) : null;
         $tipo = !empty($datos['tipo']) ? trim($datos['tipo']) : $categoria;
+        $usuarioTango = !empty($datos['usuario_tango']) ? trim($datos['usuario_tango']) : null;
 
         $nroSucurs = !empty($datos['nro_sucurs']) ? trim($datos['nro_sucurs']) : null;
         $legajo = !empty($datos['legajo']) ? (int)$datos['legajo'] : null;
@@ -157,6 +159,7 @@ class Usuario {
             $nroSucurs,
             $legajo,
             $codVend,
+            $usuarioTango,
             isset($datos['activo']) ? (int)$datos['activo'] : 1
         ];
 
@@ -175,6 +178,7 @@ class Usuario {
         $nroSuc = !empty($datos['nro_sucursal']) ? (int)$datos['nro_sucursal'] : null;
         $codVend = !empty($datos['cod_vendedor']) ? trim($datos['cod_vendedor']) : null;
         $tipo = !empty($datos['tipo']) ? trim($datos['tipo']) : $categoria;
+        $usuarioTango = !empty($datos['usuario_tango']) ? trim($datos['usuario_tango']) : null;
 
         $nroSucurs = !empty($datos['nro_sucurs']) ? trim($datos['nro_sucurs']) : null;
         $legajo = !empty($datos['legajo']) ? (int)$datos['legajo'] : null;
@@ -193,6 +197,7 @@ class Usuario {
                 nro_sucurs = ?,
                 legajo = ?,
                 cod_vendedor = ?,
+                usuario_tango = ?,
                 activo = ?,
                 updated_at = GETDATE()";
         
@@ -210,6 +215,7 @@ class Usuario {
             $nroSucurs,
             $legajo,
             $codVend,
+            $usuarioTango,
             isset($datos['activo']) ? (int)$datos['activo'] : 1
         ];
 

@@ -22,6 +22,7 @@ class AuthCentral {
         $db = Database::getInstance()->connectApps();
         $sql = "SELECT u.id, u.username, u.password_plain, u.nombre_completo, u.email, u.tipo, 
                        u.permisos_legacy, u.cod_client, u.nro_sucursal, u.nro_sucurs, u.cod_vendedor, u.activo, u.rol_id, u.sector_id,
+                       u.usuario_tango,
                        s.codigo as sector_codigo, s.nombre as sector_nombre,
                        r.nombre as rol_nombre, r.codigo as rol_codigo, r.es_admin
                 FROM FP_SOF_USUARIOS u 
@@ -56,6 +57,7 @@ class AuthCentral {
                 'sector_id' => $user['sector_id'],
                 'sector_nombre' => $user['sector_nombre'],
                 'rol_nombre' => $user['rol_nombre'],
+                'usuario_tango' => $user['usuario_tango'] ?? null,
                 'es_admin' => $esAdmin
             ];
             return $_SESSION['fp_auth_user'];
