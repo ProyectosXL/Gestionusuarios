@@ -33,76 +33,76 @@ function calcularDestinoLogin($u) {
     if ($username === 'FRANCOPERTUS' || strpos($rol, 'ADMIN') !== false || strpos($rol, 'PROYECTOS') !== false) {
         return [
             'nombre' => 'Centralizador Hub (NODO / Identity)',
-            'url' => 'https://app.xl.com.ar/sistemas/hub/index.php',
+            'url' => '/sistemas/hub/index.php',
             'badge' => 'bg-indigo-50 text-indigo-700 border-indigo-200'
         ];
     }
     if ($tipo === 'GRUPO' || $cat === 'GRUPO' || strpos($rol, 'GRUPO') !== false) {
         return [
             'nombre' => 'Portal Franquicias Grupo',
-            'url' => 'https://app.xl.com.ar/ppp/franquicias/grupo/index.php',
+            'url' => '/ppp/franquicias/grupo/index.php',
             'badge' => 'bg-amber-50 text-amber-800 border-amber-200'
         ];
     }
     if (strpos($rol, 'CONTEO') !== false || strpos($username, 'CONTEO') !== false || in_array((string)($u['permisos_legacy'] ?? ''), ['5', '6'])) {
         return [
             'nombre' => 'Sistema de Conteos / Auditoría',
-            'url' => 'https://app.xl.com.ar/sistemas/conteos/index.php',
+            'url' => '/sistemas/conteos/index.php',
             'badge' => 'bg-rose-50 text-rose-700 border-rose-200'
         ];
     }
     if ($cat === 'MAYORISTA' || $tipo === 'MAYORISTA' || (!empty($codVend) && $codVend !== '0') || strpos($rol, 'MAYORISTA') !== false) {
         return [
             'nombre' => 'Portal Clientes Mayoristas B2B',
-            'url' => 'https://app.xl.com.ar/sistemas/mayoristas/index.php',
+            'url' => '/sistemas/mayoristas/index.php',
             'badge' => 'bg-teal-50 text-teal-800 border-teal-200'
         ];
     }
     if ($cat === 'PERSONAL' && ($tipo === 'SUPERVISION' || strpos($rol, 'SUPERVISOR') !== false)) {
         return [
             'nombre' => 'Centralizador Hub (NODO / Comerciales)',
-            'url' => 'https://app.xl.com.ar/sistemas/hub/index.php',
+            'url' => '/sistemas/hub/index.php',
             'badge' => 'bg-indigo-50 text-indigo-700 border-indigo-200'
         ];
     }
     if ($tipo === 'SUPERVISION' || strpos($rol, 'SUPERVISOR') !== false || in_array($username, ['SUPERVISORAS', 'COMERCIAL', 'COMERCIAL2'])) {
         return [
             'nombre' => 'Estadísticas Comerciales',
-            'url' => 'https://app.xl.com.ar/comercial/estadisticas/index.php',
+            'url' => '/comercial/estadisticas/index.php',
             'badge' => 'bg-purple-50 text-purple-700 border-purple-200'
         ];
     }
     if ($cat === 'PERSONAL' && ($tipo === 'GERENCIA' || strpos($rol, 'GERENCIA') !== false || strpos($rol, 'DIRECCI') !== false)) {
         return [
             'nombre' => 'Centralizador Hub (NODO / Dirección)',
-            'url' => 'https://app.xl.com.ar/sistemas/hub/index.php',
+            'url' => '/sistemas/hub/index.php',
             'badge' => 'bg-indigo-50 text-indigo-700 border-indigo-200'
         ];
     }
     if ($tipo === 'GERENCIA' || strpos($rol, 'GERENCIA') !== false || strpos($rol, 'DIRECCI') !== false) {
         return [
             'nombre' => 'Portal Gerencia / PPP',
-            'url' => 'https://app.xl.com.ar/ppp/index.php',
+            'url' => '/ppp/index.php',
             'badge' => 'bg-sky-50 text-sky-700 border-sky-200'
         ];
     }
     if ($username === 'LOGISTICA_CORP' || strpos($rol, 'LOGISTICA') !== false) {
         return [
             'nombre' => 'Control Logística Operativa',
-            'url' => 'https://app.xl.com.ar/sistemas/control/control_logistica.php',
+            'url' => '/sistemas/control/control_logistica.php',
             'badge' => 'bg-cyan-50 text-cyan-800 border-cyan-200'
         ];
     }
     if ($cat === 'LOCAL') {
         return [
             'nombre' => 'Terminal Local / Lakers',
-            'url' => 'https://app.xl.com.ar/sistemas/eliminaPedido.php',
+            'url' => '/sistemas/eliminaPedido.php',
             'badge' => 'bg-blue-50 text-blue-700 border-blue-200'
         ];
     }
     return [
         'nombre' => 'Hub Central / NODO',
-        'url' => 'https://app.xl.com.ar/sistemas/hub/index.php',
+        'url' => '/sistemas/hub/index.php',
         'badge' => 'bg-slate-50 text-slate-700 border-slate-200'
     ];
 }

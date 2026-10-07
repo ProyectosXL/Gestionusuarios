@@ -73,7 +73,7 @@ class AuthCentral {
     public static function requireAdmin() {
         $user = self::user();
         if (!$user) {
-            header('Location: https://app.xl.com.ar/sistemas/login.php');
+            header('Location: /sistemas/login.php');
             exit;
         }
 
