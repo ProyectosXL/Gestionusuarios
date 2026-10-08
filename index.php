@@ -14,8 +14,10 @@ AuthCentral::requireAdmin();
 $usuarioModel = new Usuario();
 $estructuraModel = new Estructura();
 
-// Sembrar iniciales
-$estructuraModel->sembrarSectoresIniciales();
+// Sembrar iniciales solo si se solicita explícitamente para mantenimiento
+if (isset($_GET['seed']) && $_GET['seed'] === '1') {
+    $estructuraModel->sembrarSectoresIniciales();
+}
 
 $tab = $_GET['tab'] ?? 'usuarios';
 $mensaje = '';
@@ -640,13 +642,24 @@ $pagina = max(1, (int)($_GET['p'] ?? 1));
 $porPagina = max(10, min(1000, (int)($_GET['limit'] ?? 30)));
 $offset = ($pagina - 1) * $porPagina;
 
-$totalUsuarios = $usuarioModel->totalRegistros($busqueda, $tipo, $sectorFiltro, $categoriaFiltro, $rolFiltro);
-$totalPersonales = $usuarioModel->totalPorCategoria('PERSONAL');
-$totalLocales = $usuarioModel->totalPorCategoria('LOCAL');
-$totalMayoristas = $usuarioModel->totalPorCategoria('MAYORISTA');
-$totalGrupos = $usuarioModel->totalPorCategoria('GRUPO');
+// Totales consolidados por categoría en una única consulta
+$totalesCat = $usuarioModel->totalesPorCategoriaAgrupados();
+$totalPersonales = $totalesCat['PERSONAL'] ?? 0;
+$totalLocales = $totalesCat['LOCAL'] ?? 0;
+$totalMayoristas = $totalesCat['MAYORISTA'] ?? 0;
+$totalGrupos = $totalesCat['GRUPO'] ?? 0;
 
-$usuarios = $usuarioModel->listar($busqueda, $tipo, $sectorFiltro, $categoriaFiltro, $rolFiltro, $porPagina, $offset);
+// Carga perezosa según pestaña activa
+if ($tab === 'usuarios' || empty($tab)) {
+    $totalUsuarios = $usuarioModel->totalRegistros($busqueda, $tipo, $sectorFiltro, $categoriaFiltro, $rolFiltro);
+    $usuarios = $usuarioModel->listar($busqueda, $tipo, $sectorFiltro, $categoriaFiltro, $rolFiltro, $porPagina, $offset);
+    $totalPaginas = max(1, ceil($totalUsuarios / $porPagina));
+} else {
+    $totalUsuarios = 0;
+    $usuarios = [];
+    $totalPaginas = 1;
+}
+
 $tipos = $usuarioModel->obtenerTipos();
 $sectores = $estructuraModel->listarSectores();
 $subsectores = $estructuraModel->listarSubsectores();
@@ -657,7 +670,6 @@ $modulosTodos = $estructuraModel->listarModulosTodos();
 $categoriasHubExistentes = array_values(array_unique(array_filter(array_map(function($m){ return trim($m['categoria'] ?? ''); }, $modulosTodos))));
 sort($categoriasHubExistentes);
 $matrizEstructuraHub = ($tab === 'hub_matriz') ? $estructuraModel->obtenerMatrizEstructuraCompleta() : [];
-$totalPaginas = ceil($totalUsuarios / $porPagina);
 
 // Filtros y Paginación para Relevamiento
 $relBusqueda = trim($_GET['q_rel'] ?? '');
@@ -667,15 +679,18 @@ $relPagina = max(1, (int)($_GET['p_rel'] ?? 1));
 $relPorPagina = max(10, min(1000, (int)($_GET['rel_limit'] ?? 30)));
 $relOffset = ($relPagina - 1) * $relPorPagina;
 
-$totalRelevamiento = $usuarioModel->totalRelevamiento($relBusqueda, $relEstado, $relCategoria);
-$listaRelevamiento = $usuarioModel->listarRelevamiento($relBusqueda, $relEstado, $relCategoria, $relPorPagina, $relOffset);
-$relTotalPaginas = ceil($totalRelevamiento / $relPorPagina);
-
-// Mapa de permisos por rol para Javascript
-$mapaPermisosPorRol = [];
-foreach ($roles as $r) {
-    $mapaPermisosPorRol[$r['id']] = $estructuraModel->obtenerPermisosRol($r['id']);
+if ($tab === 'relevamiento') {
+    $totalRelevamiento = $usuarioModel->totalRelevamiento($relBusqueda, $relEstado, $relCategoria);
+    $listaRelevamiento = $usuarioModel->listarRelevamiento($relBusqueda, $relEstado, $relCategoria, $relPorPagina, $relOffset);
+    $relTotalPaginas = max(1, ceil($totalRelevamiento / $relPorPagina));
+} else {
+    $totalRelevamiento = $statsRelevamiento['total'] ?? 0;
+    $listaRelevamiento = [];
+    $relTotalPaginas = 1;
 }
+
+// Mapa de permisos por rol en 1 sola consulta SQL
+$mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -707,9 +722,23 @@ foreach ($roles as $r) {
         .tabla-scroll-container::-webkit-scrollbar-thumb:hover {
             background: #94a3b8;
         }
+        /* Top Progress Bar transition */
+        #topProgressBar {
+            transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+        }
+        @keyframes pulseGlow {
+            0%, 100% { opacity: 0.85; }
+            50% { opacity: 0.4; }
+        }
+        .animate-pulse-glow {
+            animation: pulseGlow 1.5s infinite ease-in-out;
+        }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col antialiased">
+
+    <!-- Barra de progreso superior interactiva para cargas / envíos -->
+    <div id="topProgressBar" class="fixed top-0 left-0 h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 z-50 pointer-events-none opacity-0 w-0 shadow-sm shadow-indigo-300"></div>
 
     <!-- Header Principal Light -->
     <header class="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-xs">
@@ -879,7 +908,7 @@ foreach ($roles as $r) {
                     <input type="hidden" name="tab" value="relevamiento">
                     
                     <div class="relative flex-1 min-w-[200px]">
-                        <i class="fas fa-search absolute left-3.5 top-2.5 text-slate-400 text-xs"></i>
+                        <i id="searchIconRel" class="fas fa-search absolute left-3.5 top-2.5 text-slate-400 text-xs transition-all"></i>
                         <input type="text" name="q_rel" id="inputBusquedaRel" value="<?= htmlspecialchars($relBusqueda) ?>" placeholder="Buscar por usuario, nombre, cliente o notas..." 
                                 class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
                     </div>
@@ -916,8 +945,8 @@ foreach ($roles as $r) {
                         </select>
                     </div>
 
-                    <button type="submit" class="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold transition shadow-2xs">
-                        Filtrar
+                    <button type="submit" class="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold transition shadow-2xs cursor-pointer flex items-center gap-1.5">
+                        <i class="fas fa-filter text-[10px]"></i> Filtrar
                     </button>
                     <?php if(!empty($relBusqueda) || !empty($relEstado) || !empty($relCategoria) || $relPorPagina != 30): ?>
                         <a href="?tab=relevamiento" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-medium transition">
@@ -949,7 +978,15 @@ foreach ($roles as $r) {
             </div>
 
             <!-- Contenedor con SCROLL PROPIO para la Matriz / Tabla -->
-            <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+            <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden relative">
+                <!-- Overlay de carga interactivo -->
+                <div id="overlayLoadingRel" class="hidden absolute inset-0 bg-white/80 backdrop-blur-[1px] flex flex-col items-center justify-center z-30 transition-all duration-200">
+                    <div class="flex items-center space-x-2.5 bg-slate-900 text-white px-4 py-2.5 rounded-2xl shadow-xl text-xs font-semibold">
+                        <i class="fas fa-circle-notch fa-spin text-indigo-400 text-sm"></i>
+                        <span>Cargando datos...</span>
+                    </div>
+                </div>
+
                 <div class="tabla-scroll-container max-h-[62vh] overflow-y-auto overflow-x-auto relative">
                     <table class="w-full text-left border-collapse text-xs">
                         <thead class="sticky top-0 z-20 bg-slate-100/95 backdrop-blur-xs border-b border-slate-200 text-slate-600 font-bold uppercase text-[10px] tracking-wider shadow-2xs">
@@ -1173,8 +1210,8 @@ foreach ($roles as $r) {
                     
                     <!-- Input de búsqueda -->
                     <div class="relative flex-1 min-w-[200px]">
-                        <i class="fas fa-search absolute left-3.5 top-2.5 text-slate-400 text-xs"></i>
-                        <input type="text" name="q" value="<?= htmlspecialchars($busqueda) ?>" placeholder="Buscar por usuario, nombre, cliente o legajo..." 
+                        <i id="searchIconUsr" class="fas fa-search absolute left-3.5 top-2.5 text-slate-400 text-xs transition-all"></i>
+                        <input type="text" name="q" id="inputBusquedaUsuarios" value="<?= htmlspecialchars($busqueda) ?>" placeholder="Buscar por usuario, nombre, cliente o legajo..." 
                                 class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
                     </div>
 
@@ -1231,8 +1268,8 @@ foreach ($roles as $r) {
                         </select>
                     </div>
 
-                    <button type="submit" class="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold transition shadow-2xs">
-                        <i class="fas fa-filter mr-1 text-[10px]"></i> Filtrar
+                    <button type="submit" class="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold transition shadow-2xs cursor-pointer flex items-center gap-1.5">
+                        <i class="fas fa-filter text-[10px]"></i> Filtrar
                     </button>
                     <?php if(!empty($busqueda) || !empty($tipo) || !empty($sectorFiltro) || !empty($categoriaFiltro) || !empty($rolFiltro) || $porPagina != 30): ?>
                         <a href="?tab=usuarios" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-medium transition">
@@ -1252,14 +1289,22 @@ foreach ($roles as $r) {
                             class="px-3.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-semibold transition shadow-2xs flex items-center gap-1.5 cursor-pointer">
                         <i class="fas fa-paper-plane text-indigo-600 text-xs"></i> Envío Rápido
                     </button>
-                    <button onclick="abrirModalUsuario()" class="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition shadow-xs flex items-center gap-1.5">
+                    <button onclick="abrirModalUsuario()" class="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition shadow-xs flex items-center gap-1.5 cursor-pointer">
                         <i class="fas fa-plus text-xs"></i> Nuevo Usuario
                     </button>
                 </div>
             </div>
 
             <!-- Tabla de Usuarios con Scroll Propio -->
-            <div class="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+            <div class="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden relative">
+                <!-- Overlay de carga interactivo -->
+                <div id="overlayLoadingUsr" class="hidden absolute inset-0 bg-white/80 backdrop-blur-[1px] flex flex-col items-center justify-center z-30 transition-all duration-200">
+                    <div class="flex items-center space-x-2.5 bg-slate-900 text-white px-4 py-2.5 rounded-2xl shadow-xl text-xs font-semibold">
+                        <i class="fas fa-circle-notch fa-spin text-indigo-400 text-sm"></i>
+                        <span>Cargando datos...</span>
+                    </div>
+                </div>
+
                 <div class="tabla-scroll-container max-h-[62vh] overflow-y-auto overflow-x-auto relative">
                     <table class="w-full text-left border-collapse text-xs">
                         <thead class="sticky top-0 z-20 bg-slate-100/95 backdrop-blur-xs border-b border-slate-200 text-slate-600 font-bold uppercase text-[10px] tracking-wider shadow-2xs">
@@ -3245,6 +3290,116 @@ foreach ($roles as $r) {
 
     <script>
         const mapaPermisos = <?= json_encode($mapaPermisosPorRol) ?>;
+
+        // ==================== BARRA DE PROGRESO Y ESTADOS DE CARGA ====================
+        let progressTimer = null;
+        function iniciarProgreso() {
+            const bar = document.getElementById('topProgressBar');
+            if (!bar) return;
+            if (progressTimer) clearInterval(progressTimer);
+            bar.classList.remove('opacity-0');
+            bar.style.width = '25%';
+            let w = 25;
+            progressTimer = setInterval(() => {
+                if (w < 85) {
+                    w += Math.random() * 15;
+                    bar.style.width = w + '%';
+                }
+            }, 200);
+        }
+
+        function finalizarProgreso() {
+            const bar = document.getElementById('topProgressBar');
+            if (!bar) return;
+            if (progressTimer) clearInterval(progressTimer);
+            bar.style.width = '100%';
+            setTimeout(() => {
+                bar.classList.add('opacity-0');
+                setTimeout(() => {
+                    bar.style.width = '0%';
+                }, 300);
+            }, 300);
+        }
+
+        // Interceptor global para llamadas fetch (AJAX)
+        const originalFetch = window.fetch;
+        window.fetch = async function(...args) {
+            iniciarProgreso();
+            try {
+                const res = await originalFetch.apply(this, args);
+                return res;
+            } finally {
+                finalizarProgreso();
+            }
+        };
+
+        function mostrarOverlayTabla(tabName = 'usr') {
+            iniciarProgreso();
+            const overlay = document.getElementById(tabName === 'rel' ? 'overlayLoadingRel' : 'overlayLoadingUsr');
+            if (overlay) overlay.classList.remove('hidden');
+        }
+
+        // Interceptor global de envíos de formularios para mostrar feedback visual instantáneo
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('form').forEach(f => {
+                f.addEventListener('submit', function(e) {
+                    if (!this.checkValidity()) return;
+                    
+                    const btn = this.querySelector('button[type="submit"]');
+                    if (btn && !btn.dataset.noLoading) {
+                        if (!btn.dataset.originalHtml) {
+                            btn.dataset.originalHtml = btn.innerHTML;
+                        }
+                        btn.disabled = true;
+                        btn.classList.add('opacity-75', 'cursor-not-allowed');
+                        const isDelete = btn.classList.contains('bg-rose-600') || btn.textContent.toLowerCase().includes('eliminar');
+                        const isFilter = f.id === 'formFiltroUsuarios' || f.id === 'formFiltroRelev';
+                        
+                        let loadingText = 'Guardando...';
+                        if (isDelete) loadingText = 'Eliminando...';
+                        else if (isFilter) loadingText = 'Filtrando...';
+                        
+                        btn.innerHTML = `<i class="fas fa-circle-notch fa-spin mr-1.5"></i> ${loadingText}`;
+                    }
+
+                    if (f.id === 'formFiltroUsuarios') {
+                        mostrarOverlayTabla('usr');
+                    } else if (f.id === 'formFiltroRelev') {
+                        mostrarOverlayTabla('rel');
+                    } else {
+                        iniciarProgreso();
+                    }
+                });
+            });
+
+            // Debounce inteligente para búsqueda en usuarios
+            const inputQ = document.getElementById('inputBusquedaUsuarios');
+            const iconQ = document.getElementById('searchIconUsr');
+            if (inputQ && iconQ) {
+                let debounceTimeout = null;
+                inputQ.addEventListener('input', () => {
+                    iconQ.className = 'fas fa-circle-notch fa-spin absolute left-3.5 top-2.5 text-indigo-500 text-xs transition-all';
+                    clearTimeout(debounceTimeout);
+                    debounceTimeout = setTimeout(() => {
+                        iconQ.className = 'fas fa-search absolute left-3.5 top-2.5 text-slate-400 text-xs transition-all';
+                    }, 400);
+                });
+            }
+
+            // Debounce inteligente para búsqueda en relevamiento
+            const inputQRel = document.getElementById('inputBusquedaRel');
+            const iconQRel = document.getElementById('searchIconRel');
+            if (inputQRel && iconQRel) {
+                let debounceRelTimeout = null;
+                inputQRel.addEventListener('input', () => {
+                    iconQRel.className = 'fas fa-circle-notch fa-spin absolute left-3.5 top-2.5 text-indigo-500 text-xs transition-all';
+                    clearTimeout(debounceRelTimeout);
+                    debounceRelTimeout = setTimeout(() => {
+                        iconQRel.className = 'fas fa-search absolute left-3.5 top-2.5 text-slate-400 text-xs transition-all';
+                    }, 400);
+                });
+            }
+        });
 
         // ==================== TOAST NOTIFICATIONS ====================
         function showToast(mensaje, tipo = 'success') {

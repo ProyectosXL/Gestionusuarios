@@ -164,6 +164,22 @@ class Estructura {
         return $ids;
     }
 
+    public function obtenerMapaPermisosTodosLosRoles() {
+        $sql = "SELECT rol_id, permiso_id FROM FP_ROL_PERMISO";
+        $stmt = sqlsrv_query($this->db, $sql);
+        $mapa = [];
+        if ($stmt) {
+            while ($r = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+                $rolId = (int)$r['rol_id'];
+                if (!isset($mapa[$rolId])) {
+                    $mapa[$rolId] = [];
+                }
+                $mapa[$rolId][] = (int)$r['permiso_id'];
+            }
+        }
+        return $mapa;
+    }
+
     public function guardarPermisosRol($rolId, array $permisoIds) {
         sqlsrv_begin_transaction($this->db);
         sqlsrv_query($this->db, "DELETE FROM FP_ROL_PERMISO WHERE rol_id = ?", [(int)$rolId]);

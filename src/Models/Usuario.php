@@ -115,6 +115,21 @@ class Usuario {
         return $row['total'] ?? 0;
     }
 
+    public function totalesPorCategoriaAgrupados() {
+        $sql = "SELECT categoria_usuario, COUNT(*) as total FROM FP_SOF_USUARIOS GROUP BY categoria_usuario";
+        $stmt = sqlsrv_query($this->db, $sql);
+        $res = ['PERSONAL' => 0, 'LOCAL' => 0, 'MAYORISTA' => 0, 'GRUPO' => 0];
+        if ($stmt) {
+            while ($r = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+                $cat = strtoupper(trim($r['categoria_usuario'] ?? ''));
+                if (isset($res[$cat])) {
+                    $res[$cat] = (int)$r['total'];
+                }
+            }
+        }
+        return $res;
+    }
+
     public function obtenerTipos() {
         $sql = "SELECT DISTINCT tipo FROM FP_SOF_USUARIOS WHERE tipo IS NOT NULL AND tipo != '' ORDER BY tipo ASC";
         $stmt = sqlsrv_query($this->db, $sql);
