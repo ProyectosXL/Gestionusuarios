@@ -270,7 +270,12 @@ class Usuario {
     }
 
     public function obtenerPorId($id) {
-        $sql = "SELECT * FROM FP_SOF_USUARIOS WHERE id = ?";
+        $sql = "SELECT u.*, s.nombre as sector_nombre, sub.nombre as subsector_nombre, r.nombre as rol_nombre
+                FROM FP_SOF_USUARIOS u
+                LEFT JOIN FP_SECTORES s ON s.id = u.sector_id
+                LEFT JOIN FP_SUBSECTORES sub ON sub.id = u.subsector_id
+                LEFT JOIN FP_ROLES_PERMISOS_MAP r ON r.id = u.rol_id
+                WHERE u.id = ?";
         $stmt = sqlsrv_query($this->db, $sql, [(int)$id]);
         return sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC);
     }

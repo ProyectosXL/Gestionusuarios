@@ -58,10 +58,14 @@ class Database {
             return $this->conn;
         }
 
-        $host = $this->getEnv('HOST_APPS', 'XL-APPS');
-        $db   = $this->getEnv('DATABASE_APPS', 'sistemas');
-        $user = $this->getEnv('USER', 'sa');
-        $pass = $this->getEnv('PASS', 'Axoft1988');
+        $host = $this->getEnv('HOST_APPS');
+        $db   = $this->getEnv('DATABASE_APPS');
+        $user = $this->getEnv('USER');
+        $pass = $this->getEnv('PASS');
+
+        if (empty($host) || empty($db) || empty($user) || empty($pass)) {
+            throw new Exception("Faltan variables de entorno requeridas para la conexión a la base de datos de sistemas (HOST_APPS, DATABASE_APPS, USER, PASS).");
+        }
 
         $connectionInfo = [
             'Database' => $db,

@@ -396,6 +396,97 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax']) && $_POST['aj
         }
         exit;
     }
+    // 15. Cambiar Password (AJAX)
+    elseif ($action === 'cambiar_pass') {
+        $userId = (int)($_POST['user_id'] ?? 0);
+        $nuevaPass = trim($_POST['nueva_pass'] ?? '');
+        if ($userId > 0 && $nuevaPass !== '') {
+            try {
+                $usuarioModel->actualizarPassword($userId, $nuevaPass);
+                echo json_encode([
+                    'ok' => true,
+                    'mensaje' => "Contraseña actualizada con éxito en SQL para el usuario #$userId.",
+                    'user_id' => $userId,
+                    'nueva_pass' => $nuevaPass
+                ]);
+            } catch (\Exception $e) {
+                echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+            }
+        } else {
+            echo json_encode(['ok' => false, 'error' => 'Por favor completá la contraseña.']);
+        }
+        exit;
+    }
+    // 16. Guardar Usuario (Crear / Editar AJAX)
+    elseif ($action === 'guardar_usuario') {
+        $userId = (int)($_POST['user_id'] ?? 0);
+        $datos = [
+            'username' => trim($_POST['username'] ?? ''),
+            'nombre_completo' => trim($_POST['nombre_completo'] ?? ''),
+            'email' => trim($_POST['email'] ?? ''),
+            'password' => trim($_POST['password'] ?? ''),
+            'categoria_usuario' => trim($_POST['categoria_usuario'] ?? 'PERSONAL'),
+            'tipo' => trim($_POST['tipo'] ?? ''),
+            'sector_id' => $_POST['sector_id'] ?? null,
+            'subsector_id' => $_POST['subsector_id'] ?? null,
+            'rol_id' => $_POST['rol_id'] ?? null,
+            'nro_sucurs' => trim($_POST['nro_sucurs'] ?? ''),
+            'legajo' => !empty($_POST['legajo']) ? (int)$_POST['legajo'] : null,
+            'cod_client' => trim($_POST['cod_client'] ?? ''),
+            'nro_sucursal' => $_POST['nro_sucursal'] ?? null,
+            'cod_vendedor' => trim($_POST['cod_vendedor'] ?? ''),
+            'usuario_tango' => trim($_POST['usuario_tango'] ?? ''),
+            'activo' => isset($_POST['activo']) && ($_POST['activo'] == '1' || $_POST['activo'] === 'on') ? 1 : 0
+        ];
+
+        if (!empty($datos['username'])) {
+            try {
+                if ($userId > 0) {
+                    $usuarioModel->actualizarUsuario($userId, $datos);
+                    $uActualizado = $usuarioModel->obtenerPorId($userId);
+                    echo json_encode([
+                        'ok' => true,
+                        'is_edit' => true,
+                        'mensaje' => "Usuario @{$datos['username']} actualizado correctamente.",
+                        'usuario' => $uActualizado
+                    ]);
+                } else {
+                    $nuevoId = $usuarioModel->crearUsuario($datos);
+                    echo json_encode([
+                        'ok' => true,
+                        'is_edit' => false,
+                        'mensaje' => "Nuevo usuario @{$datos['username']} creado con éxito.",
+                        'user_id' => $nuevoId
+                    ]);
+                }
+            } catch (\Exception $e) {
+                echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+            }
+        } else {
+            echo json_encode(['ok' => false, 'error' => 'El nombre de usuario es obligatorio.']);
+        }
+        exit;
+    }
+    // 17. Eliminar Usuario (AJAX)
+    elseif ($action === 'eliminar_usuario') {
+        $userId = (int)($_POST['user_id'] ?? 0);
+        $usernameBorrar = trim($_POST['username'] ?? '');
+        if ($userId > 0) {
+            try {
+                $usuarioModel->eliminarUsuario($userId);
+                echo json_encode([
+                    'ok' => true,
+                    'user_id' => $userId,
+                    'mensaje' => "Usuario @{$usernameBorrar} eliminado correctamente de SQL."
+                ]);
+            } catch (\Exception $e) {
+                echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+            }
+        } else {
+            echo json_encode(['ok' => false, 'error' => 'ID de usuario inválido.']);
+        }
+        exit;
+    }
     
     echo json_encode(['ok' => false, 'error' => 'Acción AJAX desconocida']);
     exit;
@@ -404,7 +495,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax']) && $_POST['aj
 // ==================== PROCESAMIENTO DE FORMULARIOS (POST-REDIRECT-GET) ====================
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
-    $redirectUrl = "?tab=" . urlencode($tab);
+    
+    // Preservar la URL y filtros actuales 100% intactos
+    $currentQuery = $_POST['return_query'] ?? $_SERVER['QUERY_STRING'] ?? '';
+    if (!empty($currentQuery)) {
+        $redirectUrl = '?' . ltrim($currentQuery, '?');
+    } else {
+        $redirectUrl = "?tab=" . urlencode($tab);
+    }
 
     // 1. Cambiar Password
     if ($action === 'cambiar_pass') {
@@ -1326,7 +1424,7 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
                                 </tr>
                             <?php else: ?>
                                 <?php foreach($usuarios as $u): ?>
-                                    <tr class="hover:bg-slate-50/80 transition">
+                                    <tr id="row-user-<?= $u['id'] ?>" class="hover:bg-slate-50/80 transition">
                                         <td class="py-3 px-4 font-mono font-bold text-slate-900">
                                             <div class="flex items-center space-x-2">
                                                 <div class="w-7 h-7 rounded-lg <?= $u['categoria_usuario'] === 'GRUPO' ? 'bg-amber-50 text-amber-600' : ($u['categoria_usuario'] === 'MAYORISTA' ? 'bg-teal-50 text-teal-600' : ($u['categoria_usuario'] === 'LOCAL' ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600')) ?> flex items-center justify-center text-xs">
@@ -1358,7 +1456,7 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
                                             <?php endif; ?>
                                         </td>
                                         <td class="py-3 px-4 font-mono">
-                                            <span class="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-900 font-semibold tracking-wide text-[11px]">
+                                            <span id="pass-user-<?= $u['id'] ?>" class="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-900 font-semibold tracking-wide text-[11px] transition-all duration-300">
                                                 <?= htmlspecialchars($u['password'] ?: $u['password_plain'] ?: '-') ?>
                                             </span>
                                         </td>
@@ -2648,9 +2746,10 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
                 <i class="fas fa-key text-amber-500 mr-2"></i> Modificar Contraseña en SQL
             </h3>
             <p class="text-xs text-slate-500 mb-4">Usuario: <span id="modalUsername" class="text-slate-800 font-mono font-bold"></span></p>
-            <form method="POST">
+            <form method="POST" id="formPass" onsubmit="guardarPassAjax(event)">
                 <input type="hidden" name="action" value="cambiar_pass">
                 <input type="hidden" name="user_id" id="modalUserId">
+                <input type="hidden" name="return_query" class="input-current-query" value="">
                 
                 <div class="mb-4">
                     <label class="block text-xs font-semibold text-slate-700 mb-1">Nueva Contraseña (Texto Visible SQL)</label>
@@ -2660,7 +2759,7 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
 
                 <div class="flex justify-end space-x-2 pt-2">
                     <button type="button" onclick="cerrarModal('modalPass')" class="px-3.5 py-2 text-xs font-medium text-slate-500 hover:text-slate-800 transition">Cancelar</button>
-                    <button type="submit" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition shadow-xs">Guardar en SQL</button>
+                    <button type="submit" id="btnGuardarPass" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition shadow-xs cursor-pointer">Guardar en SQL</button>
                 </div>
             </form>
         </div>
@@ -2678,16 +2777,17 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
             <p class="text-xs text-slate-500 text-center mb-5">
                 Estás por eliminar a <span id="nombreUsuarioBorrar" class="font-bold text-slate-800 font-mono"></span> de la base de datos SQL. Esta acción no se puede deshacer.
             </p>
-            <form method="POST">
+            <form method="POST" id="formEliminarUsuario" onsubmit="eliminarUsuarioAjax(event)">
                 <input type="hidden" name="action" value="eliminar_usuario">
                 <input type="hidden" name="user_id" id="borrarUserId">
                 <input type="hidden" name="username" id="borrarUsername">
+                <input type="hidden" name="return_query" class="input-current-query" value="">
                 
                 <div class="grid grid-cols-2 gap-2">
-                    <button type="button" onclick="cerrarModal('modalEliminarUsuario')" class="w-full py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition">
+                    <button type="button" onclick="cerrarModal('modalEliminarUsuario')" class="w-full py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition cursor-pointer">
                         Cancelar
                     </button>
-                    <button type="submit" class="w-full py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-xl transition shadow-xs">
+                    <button type="submit" id="btnConfirmarEliminarUsr" class="w-full py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-xl transition shadow-xs cursor-pointer">
                         Sí, Eliminar
                     </button>
                 </div>
@@ -2703,9 +2803,10 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
             </h3>
             <p class="text-xs text-slate-500 mb-4">Configuración de datos de acceso, categoría, sector y rol.</p>
             
-            <form method="POST" class="space-y-4">
+            <form method="POST" id="formUsuario" onsubmit="guardarUsuarioAjax(event)" class="space-y-4">
                 <input type="hidden" name="action" value="guardar_usuario">
                 <input type="hidden" name="user_id" id="formUserId" value="0">
+                <input type="hidden" name="return_query" class="input-current-query" value="">
 
                 <!-- Selector de Categoría de Usuario -->
                 <div class="p-3.5 bg-slate-100/90 rounded-2xl border border-slate-200">
@@ -3385,6 +3486,12 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
                     }, 400);
                 });
             }
+
+            // Inyectar automáticamente el Query String actual en todos los formularios para no perder filtros
+            const queryActual = window.location.search.replace(/^\?/, '');
+            document.querySelectorAll('.input-current-query').forEach(inp => {
+                inp.value = queryActual;
+            });
 
             // Debounce inteligente para búsqueda en relevamiento
             const inputQRel = document.getElementById('inputBusquedaRel');
@@ -4281,6 +4388,146 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
                 m.classList.add('hidden');
                 m.classList.remove('flex');
             }
+        }
+
+        // ==================== ACCIONES AJAX DE USUARIOS (PRESERVAN FILTROS) ====================
+        function guardarPassAjax(e) {
+            e.preventDefault();
+            const form = document.getElementById('formPass');
+            const btn = document.getElementById('btnGuardarPass');
+            const userId = document.getElementById('modalUserId').value;
+            const nuevaPass = document.getElementById('modalNuevaPass').value;
+
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-circle-notch fa-spin mr-1.5"></i> Guardando...';
+            }
+
+            const formData = new FormData(form);
+            formData.append('ajax', '1');
+
+            fetch(window.location.href, {
+                method: 'POST',
+                body: formData
+            })
+            .then(r => r.json())
+            .then(res => {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = 'Guardar en SQL';
+                }
+                if (res.ok) {
+                    showToast(res.mensaje || 'Contraseña actualizada con éxito');
+                    cerrarModal('modalPass');
+                    const passEl = document.getElementById('pass-user-' + userId);
+                    if (passEl) {
+                        passEl.textContent = nuevaPass;
+                        passEl.classList.add('bg-emerald-100', 'text-emerald-900', 'border-emerald-300');
+                        setTimeout(() => {
+                            passEl.classList.remove('bg-emerald-100', 'text-emerald-900', 'border-emerald-300');
+                        }, 2000);
+                    }
+                } else {
+                    showToast(res.error || 'Error al actualizar contraseña', 'error');
+                }
+            })
+            .catch(() => {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = 'Guardar en SQL';
+                }
+                showToast('Error de conexión', 'error');
+            });
+        }
+
+        function guardarUsuarioAjax(e) {
+            e.preventDefault();
+            const form = document.getElementById('formUsuario');
+            const btn = form.querySelector('button[type="submit"]');
+
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-circle-notch fa-spin mr-1.5"></i> Guardando...';
+            }
+
+            const formData = new FormData(form);
+            formData.append('ajax', '1');
+
+            fetch(window.location.href, {
+                method: 'POST',
+                body: formData
+            })
+            .then(r => r.json())
+            .then(res => {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = 'Guardar Usuario';
+                }
+                if (res.ok) {
+                    showToast(res.mensaje || 'Usuario guardado correctamente');
+                    cerrarModal('modalUsuario');
+                    // Recargar conservando exactamente todos los filtros activos y paginación
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 400);
+                } else {
+                    showToast(res.error || 'Error al guardar usuario', 'error');
+                }
+            })
+            .catch(() => {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = 'Guardar Usuario';
+                }
+                showToast('Error de conexión', 'error');
+            });
+        }
+
+        function eliminarUsuarioAjax(e) {
+            e.preventDefault();
+            const form = document.getElementById('formEliminarUsuario');
+            const btn = document.getElementById('btnConfirmarEliminarUsr');
+            const userId = document.getElementById('borrarUserId').value;
+
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-circle-notch fa-spin mr-1.5"></i> Eliminando...';
+            }
+
+            const formData = new FormData(form);
+            formData.append('ajax', '1');
+
+            fetch(window.location.href, {
+                method: 'POST',
+                body: formData
+            })
+            .then(r => r.json())
+            .then(res => {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = 'Sí, Eliminar';
+                }
+                if (res.ok) {
+                    showToast(res.mensaje || 'Usuario eliminado correctamente');
+                    cerrarModal('modalEliminarUsuario');
+                    const row = document.getElementById('row-user-' + userId);
+                    if (row) {
+                        row.classList.add('bg-rose-50', 'opacity-50');
+                        setTimeout(() => row.remove(), 400);
+                    } else {
+                        setTimeout(() => window.location.reload(), 400);
+                    }
+                } else {
+                    showToast(res.error || 'Error al eliminar usuario', 'error');
+                }
+            })
+            .catch(() => {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = 'Sí, Eliminar';
+                }
+                showToast('Error de conexión', 'error');
+            });
         }
 
         // ==================== JS MATRIZ HUB & ACCESOS ====================
