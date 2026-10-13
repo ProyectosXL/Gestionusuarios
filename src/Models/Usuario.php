@@ -11,7 +11,7 @@ class Usuario {
         $this->db = Database::getInstance()->connectApps();
     }
 
-    public function listar($busqueda = '', $tipo = '', $sectorId = '', $categoria = '', $rolId = '', $limit = 50, $offset = 0) {
+    public function listar($busqueda = '', $tipo = '', $sectorId = '', $categoria = '', $rolId = '', $limit = 50, $offset = 0, $activo = '') {
         $sql = "SELECT u.id, u.legacy_id, u.username, u.password, u.password_plain, u.nombre_completo, u.email, 
                        u.categoria_usuario, u.tipo, u.permisos_legacy, u.cod_client, u.nro_sucursal, u.nro_sucurs, u.legajo, u.cod_vendedor, u.activo, 
                        u.sector_id, u.subsector_id, u.rol_id, u.ultimo_login, u.created_at,
@@ -54,6 +54,11 @@ class Usuario {
             $params[] = (int)$rolId;
         }
 
+        if ($activo !== '' && $activo !== null) {
+            $sql .= " AND u.activo = ?";
+            $params[] = (int)$activo;
+        }
+
         $sql .= " ORDER BY u.id DESC OFFSET ? ROWS FETCH NEXT ? ROWS ONLY";
         $params[] = (int)$offset;
         $params[] = (int)$limit;
@@ -70,7 +75,7 @@ class Usuario {
         return $usuarios;
     }
 
-    public function totalRegistros($busqueda = '', $tipo = '', $sectorId = '', $categoria = '', $rolId = '') {
+    public function totalRegistros($busqueda = '', $tipo = '', $sectorId = '', $categoria = '', $rolId = '', $activo = '') {
         $sql = "SELECT COUNT(*) as total FROM FP_SOF_USUARIOS u WHERE 1=1";
         $params = [];
 
@@ -103,9 +108,19 @@ class Usuario {
             $params[] = (int)$rolId;
         }
 
+        if ($activo !== '' && $activo !== null) {
+            $sql .= " AND u.activo = ?";
+            $params[] = (int)$activo;
+        }
+
         $stmt = sqlsrv_query($this->db, $sql, $params);
         $row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC);
         return $row['total'] ?? 0;
+    }
+
+    public function cambiarEstadoActivo($id, $activo) {
+        $sql = "UPDATE FP_SOF_USUARIOS SET activo = ?, updated_at = GETDATE() WHERE id = ?";
+        return sqlsrv_query($this->db, $sql, [(int)$activo, (int)$id]);
     }
 
     public function totalPorCategoria($categoria) {

@@ -116,8 +116,9 @@ if (isset($_GET['action']) && $_GET['action'] === 'exportar_excel_usuarios') {
     $sectorFiltro = trim($_GET['sec'] ?? '');
     $categoriaFiltro = trim($_GET['cat'] ?? '');
     $rolFiltro = trim($_GET['rol'] ?? '');
+    $activoFiltro = isset($_GET['act']) && $_GET['act'] !== '' ? trim($_GET['act']) : '';
 
-    $usuariosExport = $usuarioModel->listar($busqueda, $tipo, $sectorFiltro, $categoriaFiltro, $rolFiltro, 10000, 0);
+    $usuariosExport = $usuarioModel->listar($busqueda, $tipo, $sectorFiltro, $categoriaFiltro, $rolFiltro, 10000, 0, $activoFiltro);
 
     $filename = "Credenciales_Usuarios_XL_" . date('Y-m-d_His') . ".csv";
     header('Content-Type: text/csv; charset=UTF-8');
@@ -487,6 +488,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax']) && $_POST['aj
         }
         exit;
     }
+    // 18. Toggle Activo Usuario (AJAX)
+    elseif ($action === 'toggle_activo_usuario') {
+        $userId = (int)($_POST['user_id'] ?? 0);
+        $activo = isset($_POST['activo']) ? (int)$_POST['activo'] : 0;
+        if ($userId > 0) {
+            try {
+                $usuarioModel->cambiarEstadoActivo($userId, $activo);
+                echo json_encode([
+                    'ok' => true,
+                    'user_id' => $userId,
+                    'activo' => $activo,
+                    'mensaje' => $activo ? "Usuario habilitado correctamente." : "Usuario deshabilitado."
+                ]);
+            } catch (\Exception $e) {
+                echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+            }
+        } else {
+            echo json_encode(['ok' => false, 'error' => 'ID de usuario inválido.']);
+        }
+        exit;
+    }
     
     echo json_encode(['ok' => false, 'error' => 'Acción AJAX desconocida']);
     exit;
@@ -736,6 +758,7 @@ $tipo = trim($_GET['tipo'] ?? '');
 $sectorFiltro = trim($_GET['sec'] ?? '');
 $categoriaFiltro = trim($_GET['cat'] ?? '');
 $rolFiltro = trim($_GET['rol'] ?? '');
+$activoFiltro = isset($_GET['act']) && $_GET['act'] !== '' ? trim($_GET['act']) : '';
 $pagina = max(1, (int)($_GET['p'] ?? 1));
 $porPagina = max(10, min(1000, (int)($_GET['limit'] ?? 30)));
 $offset = ($pagina - 1) * $porPagina;
@@ -749,8 +772,8 @@ $totalGrupos = $totalesCat['GRUPO'] ?? 0;
 
 // Carga perezosa según pestaña activa
 if ($tab === 'usuarios' || empty($tab)) {
-    $totalUsuarios = $usuarioModel->totalRegistros($busqueda, $tipo, $sectorFiltro, $categoriaFiltro, $rolFiltro);
-    $usuarios = $usuarioModel->listar($busqueda, $tipo, $sectorFiltro, $categoriaFiltro, $rolFiltro, $porPagina, $offset);
+    $totalUsuarios = $usuarioModel->totalRegistros($busqueda, $tipo, $sectorFiltro, $categoriaFiltro, $rolFiltro, $activoFiltro);
+    $usuarios = $usuarioModel->listar($busqueda, $tipo, $sectorFiltro, $categoriaFiltro, $rolFiltro, $porPagina, $offset, $activoFiltro);
     $totalPaginas = max(1, ceil($totalUsuarios / $porPagina));
 } else {
     $totalUsuarios = 0;
@@ -830,6 +853,34 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
         }
         .animate-pulse-glow {
             animation: pulseGlow 1.5s infinite ease-in-out;
+        }
+        /* Switch Toggle de Estado */
+        .switch-toggle-box {
+            width: 36px;
+            height: 20px;
+            background-color: #cbd5e1;
+            border-radius: 9999px;
+            position: relative;
+            cursor: pointer;
+            transition: background-color 0.2s ease-in-out;
+            display: inline-block;
+        }
+        .switch-toggle-knob {
+            width: 16px;
+            height: 16px;
+            background-color: #ffffff;
+            border-radius: 9999px;
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+            transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        input[type="checkbox"]:checked + .switch-toggle-box {
+            background-color: #10b981;
+        }
+        input[type="checkbox"]:checked + .switch-toggle-box .switch-toggle-knob {
+            transform: translateX(16px);
         }
     </style>
 </head>
@@ -1354,6 +1405,15 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
                         </select>
                     </div>
 
+                    <!-- Filtro Estado (Habilitado / Deshabilitado) -->
+                    <div class="w-36">
+                        <select name="act" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
+                            <option value="">Estado (Todos)</option>
+                            <option value="1" <?= $activoFiltro === '1' ? 'selected' : '' ?>>🟢 Habilitados</option>
+                            <option value="0" <?= $activoFiltro === '0' ? 'selected' : '' ?>>🔴 Inactivos</option>
+                        </select>
+                    </div>
+
                     <!-- Selector Registros por Página -->
                     <div class="w-28">
                         <select name="limit" onchange="document.getElementById('formFiltroUsuarios').submit()" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
@@ -1369,7 +1429,7 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
                     <button type="submit" class="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold transition shadow-2xs cursor-pointer flex items-center gap-1.5">
                         <i class="fas fa-filter text-[10px]"></i> Filtrar
                     </button>
-                    <?php if(!empty($busqueda) || !empty($tipo) || !empty($sectorFiltro) || !empty($categoriaFiltro) || !empty($rolFiltro) || $porPagina != 30): ?>
+                    <?php if(!empty($busqueda) || !empty($tipo) || !empty($sectorFiltro) || !empty($categoriaFiltro) || !empty($rolFiltro) || $activoFiltro !== '' || $porPagina != 30): ?>
                         <a href="?tab=usuarios" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-medium transition">
                             Limpiar
                         </a>
@@ -1377,7 +1437,7 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
                 </form>
 
                 <div class="flex items-center space-x-2 flex-wrap">
-                    <a href="?action=exportar_excel_usuarios&q=<?= urlencode($busqueda) ?>&tipo=<?= urlencode($tipo) ?>&sec=<?= urlencode($sectorFiltro) ?>&cat=<?= urlencode($categoriaFiltro) ?>&rol=<?= urlencode($rolFiltro) ?>" 
+                    <a href="?action=exportar_excel_usuarios&q=<?= urlencode($busqueda) ?>&tipo=<?= urlencode($tipo) ?>&sec=<?= urlencode($sectorFiltro) ?>&cat=<?= urlencode($categoriaFiltro) ?>&rol=<?= urlencode($rolFiltro) ?>&act=<?= urlencode($activoFiltro) ?>" 
                        title="Descargar listado completo de credenciales en Excel / CSV con el filtro actual"
                        class="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition shadow-xs flex items-center gap-1.5 cursor-pointer">
                         <i class="fas fa-file-excel text-xs"></i> Exportar Excel (<?= $totalUsuarios ?>)
@@ -1409,6 +1469,7 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
                             <tr>
                                 <th class="py-3 px-4 bg-slate-100">Usuario</th>
                                 <th class="py-3 px-4 bg-slate-100">Categoría</th>
+                                <th class="py-3 px-4 text-center bg-slate-100">Estado</th>
                                 <th class="py-3 px-4 bg-slate-100">Contraseña (SQL)</th>
                                 <th class="py-3 px-4 bg-slate-100">Nombre Completo</th>
                                 <th class="py-3 px-4 bg-slate-100">Sector / Subsector</th>
@@ -1420,11 +1481,11 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
                         <tbody class="divide-y divide-slate-100">
                             <?php if(empty($usuarios)): ?>
                                 <tr>
-                                    <td colspan="8" class="text-center py-8 text-slate-400 italic">No se encontraron usuarios</td>
+                                    <td colspan="9" class="text-center py-8 text-slate-400 italic">No se encontraron usuarios</td>
                                 </tr>
                             <?php else: ?>
                                 <?php foreach($usuarios as $u): ?>
-                                    <tr id="row-user-<?= $u['id'] ?>" class="hover:bg-slate-50/80 transition">
+                                    <tr id="row-user-<?= $u['id'] ?>" class="hover:bg-slate-50/80 transition <?= ($u['activo'] == 0) ? 'bg-slate-100/50 opacity-75' : '' ?>">
                                         <td class="py-3 px-4 font-mono font-bold text-slate-900">
                                             <div class="flex items-center space-x-2">
                                                 <div class="w-7 h-7 rounded-lg <?= $u['categoria_usuario'] === 'GRUPO' ? 'bg-amber-50 text-amber-600' : ($u['categoria_usuario'] === 'MAYORISTA' ? 'bg-teal-50 text-teal-600' : ($u['categoria_usuario'] === 'LOCAL' ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600')) ?> flex items-center justify-center text-xs">
@@ -1454,6 +1515,21 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
                                                     PERSONAL
                                                 </span>
                                             <?php endif; ?>
+                                        </td>
+                                        <!-- Columna Estado / Habilitado con Switch interactivo y Badge -->
+                                        <td class="py-3 px-4 text-center whitespace-nowrap">
+                                            <div class="inline-flex items-center justify-center gap-2">
+                                                <label class="inline-flex items-center cursor-pointer select-none" title="<?= $u['activo'] == 1 ? 'Habilitado - Clic para deshabilitar' : 'Inactivo - Clic para habilitar' ?>">
+                                                    <input type="checkbox" onchange="toggleActivoUsuario(<?= $u['id'] ?>, this)" <?= $u['activo'] == 1 ? 'checked' : '' ?> class="sr-only">
+                                                    <div class="switch-toggle-box">
+                                                        <div class="switch-toggle-knob"></div>
+                                                    </div>
+                                                </label>
+                                                <span id="badge-activo-<?= $u['id'] ?>" class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold <?= $u['activo'] == 1 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200' ?>">
+                                                    <span class="w-1.5 h-1.5 rounded-full mr-1 <?= $u['activo'] == 1 ? 'bg-emerald-500' : 'bg-rose-500' ?>"></span>
+                                                    <?= $u['activo'] == 1 ? 'Habilitado' : 'Inactivo' ?>
+                                                </span>
+                                            </div>
                                         </td>
                                         <td class="py-3 px-4 font-mono">
                                             <span id="pass-user-<?= $u['id'] ?>" class="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-900 font-semibold tracking-wide text-[11px] transition-all duration-300">
@@ -1551,13 +1627,13 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
                     <?php if($totalPaginas > 1): ?>
                         <div class="flex space-x-1.5">
                             <?php if($pagina > 1): ?>
-                                <a href="?tab=usuarios&p=<?= $pagina - 1 ?>&q=<?= urlencode($busqueda) ?>&tipo=<?= urlencode($tipo) ?>&sec=<?= urlencode($sectorFiltro) ?>&cat=<?= urlencode($categoriaFiltro) ?>&rol=<?= urlencode($rolFiltro) ?>&limit=<?= $porPagina ?>" class="px-3 py-1 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-medium rounded-lg transition">Anterior</a>
+                                <a href="?tab=usuarios&p=<?= $pagina - 1 ?>&q=<?= urlencode($busqueda) ?>&tipo=<?= urlencode($tipo) ?>&sec=<?= urlencode($sectorFiltro) ?>&cat=<?= urlencode($categoriaFiltro) ?>&rol=<?= urlencode($rolFiltro) ?>&act=<?= urlencode($activoFiltro) ?>&limit=<?= $porPagina ?>" class="px-3 py-1 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-medium rounded-lg transition">Anterior</a>
                             <?php endif; ?>
 
                             <span class="px-3 py-1 bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold rounded-lg"><?= $pagina ?></span>
 
                             <?php if($pagina < $totalPaginas): ?>
-                                <a href="?tab=usuarios&p=<?= $pagina + 1 ?>&q=<?= urlencode($busqueda) ?>&tipo=<?= urlencode($tipo) ?>&sec=<?= urlencode($sectorFiltro) ?>&cat=<?= urlencode($categoriaFiltro) ?>&rol=<?= urlencode($rolFiltro) ?>&limit=<?= $porPagina ?>" class="px-3 py-1 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-medium rounded-lg transition">Siguiente</a>
+                                <a href="?tab=usuarios&p=<?= $pagina + 1 ?>&q=<?= urlencode($busqueda) ?>&tipo=<?= urlencode($tipo) ?>&sec=<?= urlencode($sectorFiltro) ?>&cat=<?= urlencode($categoriaFiltro) ?>&rol=<?= urlencode($rolFiltro) ?>&act=<?= urlencode($activoFiltro) ?>&limit=<?= $porPagina ?>" class="px-3 py-1 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-medium rounded-lg transition">Siguiente</a>
                             <?php endif; ?>
                         </div>
                     <?php endif; ?>
@@ -4527,6 +4603,57 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
                     btn.innerHTML = 'Sí, Eliminar';
                 }
                 showToast('Error de conexión', 'error');
+            });
+        }
+
+        function toggleActivoUsuario(userId, checkbox) {
+            const nuevoEstado = checkbox.checked ? 1 : 0;
+            const badge = document.getElementById('badge-activo-' + userId);
+            const row = document.getElementById('row-user-' + userId);
+
+            // Actualización visual inmediata
+            if (badge) {
+                if (nuevoEstado === 1) {
+                    badge.className = 'inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 transition-all';
+                    badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full mr-1 bg-emerald-500"></span>Habilitado';
+                } else {
+                    badge.className = 'inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200 transition-all';
+                    badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full mr-1 bg-rose-500"></span>Inactivo';
+                }
+            }
+            if (row) {
+                if (nuevoEstado === 1) {
+                    row.classList.remove('bg-slate-100/50', 'opacity-75');
+                } else {
+                    row.classList.add('bg-slate-100/50', 'opacity-75');
+                }
+            }
+
+            const formData = new FormData();
+            formData.append('ajax', '1');
+            formData.append('action', 'toggle_activo_usuario');
+            formData.append('user_id', userId);
+            formData.append('activo', nuevoEstado);
+
+            fetch(window.location.href, {
+                method: 'POST',
+                body: formData
+            })
+            .then(r => r.json())
+            .then(res => {
+                if (res.ok) {
+                    showToast(res.mensaje || 'Estado actualizado', 'success');
+                } else {
+                    // Revertir en caso de error
+                    checkbox.checked = !checkbox.checked;
+                    toggleActivoUsuario(userId, checkbox);
+                    showToast(res.error || 'No se pudo cambiar el estado', 'error');
+                }
+            })
+            .catch(() => {
+                checkbox.checked = !checkbox.checked;
+                toggleActivoUsuario(userId, checkbox);
+                showToast('Error de conexión con el servidor', 'error');
             });
         }
 
