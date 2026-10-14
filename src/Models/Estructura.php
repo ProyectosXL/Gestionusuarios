@@ -84,7 +84,28 @@ class Estructura {
     }
 
     public function eliminarSubsector($id) {
-        return sqlsrv_query($this->db, "DELETE FROM FP_SUBSECTORES WHERE id = ?", [(int)$id]);
+        // Verificar si tiene roles o usuarios asignados
+        $sqlCheck = "SELECT (SELECT COUNT(*) FROM FP_ROLES_PERMISOS_MAP WHERE subsector_id = ?) as cant_roles,
+                            (SELECT COUNT(*) FROM FP_SOF_USUARIOS WHERE subsector_id = ?) as cant_usuarios";
+        $stmt = sqlsrv_query($this->db, $sqlCheck, [(int)$id, (int)$id]);
+        $row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC);
+        $cantRoles = (int)($row['cant_roles'] ?? 0);
+        $cantUsuarios = (int)($row['cant_usuarios'] ?? 0);
+
+        if ($cantUsuarios > 0) {
+            throw new Exception("No se puede eliminar el subsector porque tiene {$cantUsuarios} usuario(s) asignado(s). Reasigne o desvincule los usuarios primero.");
+        }
+        if ($cantRoles > 0) {
+            throw new Exception("No se puede eliminar el subsector porque tiene {$cantRoles} rol(es) asignado(s). Reasigne o elimine los roles primero.");
+        }
+
+        $res = sqlsrv_query($this->db, "DELETE FROM FP_SUBSECTORES WHERE id = ?", [(int)$id]);
+        if ($res === false) {
+            $errs = sqlsrv_errors();
+            $msg = is_array($errs) && isset($errs[0]['message']) ? $errs[0]['message'] : 'Error SQL desconocido';
+            throw new Exception("Error al eliminar subsector: " . $msg);
+        }
+        return true;
     }
 
     // ==================== ROLES & PERMISOS ====================

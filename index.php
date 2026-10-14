@@ -642,6 +642,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $redirectUrl = "?tab=sectores";
     }
+    // 4.1 Eliminar Subsector
+    elseif ($action === 'eliminar_subsector') {
+        $subsectorId = (int)($_POST['subsector_id'] ?? 0);
+        $nombreSubsector = trim($_POST['nombre_subsector'] ?? '');
+        if ($subsectorId > 0) {
+            try {
+                $estructuraModel->eliminarSubsector($subsectorId);
+                $_SESSION['flash_msg'] = [
+                    'texto' => "Subsector '$nombreSubsector' eliminado exitosamente.",
+                    'tipo' => 'success'
+                ];
+            } catch (\Exception $e) {
+                $_SESSION['flash_msg'] = [
+                    'texto' => $e->getMessage(),
+                    'tipo' => 'error'
+                ];
+            }
+        }
+        $redirectUrl = "?tab=sectores";
+    }
     // 5. Crear / Editar Rol
     elseif ($action === 'guardar_rol') {
         $rolId = (int)($_POST['rol_id'] ?? 0);
@@ -1793,10 +1813,17 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
                                                                     <span><i class="fas fa-user-shield text-[9px] mr-1"></i><?= $sub['cant_roles'] ?> roles</span>
                                                                 </div>
                                                             </div>
-                                                            <button onclick='cargarEditarSubsector(<?= json_encode($sub) ?>)' 
-                                                                    title="Editar Subsector" class="p-1 text-slate-400 hover:text-purple-600 transition text-xs">
-                                                                <i class="fas fa-pencil"></i>
-                                                            </button>
+                                                            <div class="flex items-center space-x-1">
+                                                                <button onclick='cargarEditarSubsector(<?= json_encode($sub) ?>)' 
+                                                                        title="Editar Subsector" class="p-1 text-slate-400 hover:text-purple-600 transition text-xs rounded hover:bg-purple-50">
+                                                                    <i class="fas fa-pencil"></i>
+                                                                </button>
+                                                                <button type="button" 
+                                                                        onclick="confirmarEliminarSubsector(<?= $sub['id'] ?>, '<?= htmlspecialchars(addslashes($sub['nombre'])) ?>', <?= (int)$sub['cant_usuarios'] ?>, <?= (int)$sub['cant_roles'] ?>)" 
+                                                                        title="Eliminar Subsector" class="p-1 text-slate-400 hover:text-rose-600 transition text-xs rounded hover:bg-rose-50">
+                                                                    <i class="fas fa-trash-alt"></i>
+                                                                </button>
+                                                            </div>
                                                         </div>
                                                     <?php endforeach; ?>
                                                 </div>
@@ -3462,6 +3489,39 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
         </div>
     </div>
 
+    <!-- ==================== MODAL: CONFIRMAR ELIMINACIÓN DE SUBSECTOR ==================== -->
+    <div id="modalEliminarSubsector" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4">
+        <div class="bg-white border border-slate-200 rounded-2xl max-w-sm w-full p-6 shadow-xl">
+            <div class="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mb-4 mx-auto border border-rose-100">
+                <i class="fas fa-trash-alt text-xl"></i>
+            </div>
+            <h3 class="text-base font-bold text-slate-900 text-center mb-1">
+                ¿Eliminar Subsector?
+            </h3>
+            <p class="text-xs text-slate-500 text-center mb-4">
+                Estás por eliminar el subsector <strong id="nombreSubsectorEliminar" class="text-slate-900 font-bold"></strong>.
+            </p>
+            <div id="avisoSubsectorBloqueado" class="hidden mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-800 flex items-start gap-2">
+                <i class="fas fa-exclamation-triangle text-amber-600 mt-0.5 shrink-0"></i>
+                <span id="textoSubsectorBloqueado"></span>
+            </div>
+            <form method="POST" id="formEliminarSubsector">
+                <input type="hidden" name="action" value="eliminar_subsector">
+                <input type="hidden" name="subsector_id" id="borrarSubsectorId">
+                <input type="hidden" name="nombre_subsector" id="borrarSubsectorNombre">
+                
+                <div class="grid grid-cols-2 gap-2">
+                    <button type="button" onclick="cerrarModal('modalEliminarSubsector')" class="w-full py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition cursor-pointer">
+                        Cancelar
+                    </button>
+                    <button type="submit" id="btnConfirmarEliminarSubsector" class="w-full py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-xl transition shadow-xs cursor-pointer">
+                        Sí, Eliminar
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Toast Notification Container -->
     <div id="toastContainer" class="fixed bottom-5 right-5 z-50 flex flex-col space-y-2 pointer-events-none"></div>
 
@@ -4193,6 +4253,36 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
             document.getElementById('inputSubsectorDesc').value = '';
             document.getElementById('btnSubmitSubsector').textContent = 'Crear Subsector';
             document.getElementById('btnResetSubsector').classList.add('hidden');
+        }
+
+        function confirmarEliminarSubsector(subId, nombreSubsector, cantUsuarios, cantRoles) {
+            document.getElementById('borrarSubsectorId').value = subId;
+            document.getElementById('borrarSubsectorNombre').value = nombreSubsector;
+            document.getElementById('nombreSubsectorEliminar').textContent = nombreSubsector;
+
+            const aviso = document.getElementById('avisoSubsectorBloqueado');
+            const textoAviso = document.getElementById('textoSubsectorBloqueado');
+            const btnSubmit = document.getElementById('btnConfirmarEliminarSubsector');
+
+            if (cantUsuarios > 0 || cantRoles > 0) {
+                let razones = [];
+                if (cantUsuarios > 0) razones.push(`<b>${cantUsuarios} usuario(s)</b> asignado(s)`);
+                if (cantRoles > 0) razones.push(`<b>${cantRoles} rol(es)</b> configurado(s)`);
+                
+                textoAviso.innerHTML = `No se puede eliminar porque contiene ${razones.join(' y ')}. Reasigná o eliminá esos elementos primero.`;
+                aviso.classList.remove('hidden');
+                btnSubmit.disabled = true;
+                btnSubmit.classList.add('opacity-50', 'cursor-not-allowed');
+                btnSubmit.classList.remove('hover:bg-rose-700', 'cursor-pointer');
+            } else {
+                aviso.classList.add('hidden');
+                textoAviso.textContent = '';
+                btnSubmit.disabled = false;
+                btnSubmit.classList.remove('opacity-50', 'cursor-not-allowed');
+                btnSubmit.classList.add('hover:bg-rose-700', 'cursor-pointer');
+            }
+
+            abrirModal('modalEliminarSubsector');
         }
 
         // ==================== JS ROLES ====================
