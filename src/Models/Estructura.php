@@ -838,4 +838,208 @@ class Estructura {
             throw $e;
         }
     }
+
+    // ==================== EQUIPOS DE TRABAJO (CENTRAL & SUCURSALES) ====================
+    public function listarEquipos($sectorId = null) {
+        $sql = "SELECT e.*, s.nombre as sector_nombre, s.codigo as sector_codigo,
+                       sub.nombre as subsector_nombre,
+                       COALESCE(ul.nombre_completo, ul.username, CAST(e.lider_legajo AS VARCHAR)) as lider_nombre,
+                       COALESCE(ug.nombre_completo, ug.username, CAST(e.gerente_legajo AS VARCHAR)) as gerente_nombre,
+                       (SELECT COUNT(*) FROM FP_EQUIPO_MIEMBROS m WHERE m.equipo_id = e.id AND m.activo = 1) as cant_miembros
+                FROM FP_EQUIPOS e
+                LEFT JOIN FP_SECTORES s ON s.id = e.sector_id
+                LEFT JOIN FP_SUBSECTORES sub ON sub.id = e.subsector_id
+                LEFT JOIN FP_SOF_USUARIOS ul ON (ul.id = e.lider_usuario_id OR (e.lider_usuario_id IS NULL AND ul.legajo = e.lider_legajo))
+                LEFT JOIN FP_SOF_USUARIOS ug ON (ug.id = e.gerente_usuario_id OR (e.gerente_usuario_id IS NULL AND ug.legajo = e.gerente_legajo))
+                WHERE 1=1";
+        $params = [];
+        if ($sectorId) {
+            $sql .= " AND e.sector_id = ?";
+            $params[] = (int)$sectorId;
+        }
+        $sql .= " ORDER BY s.nombre ASC, e.nombre ASC";
+        $stmt = sqlsrv_query($this->db, $sql, $params);
+        $res = [];
+        if ($stmt) {
+            while ($r = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+                $res[] = $r;
+            }
+        }
+        return $res;
+    }
+
+    public function obtenerEquipo($id) {
+        $sql = "SELECT e.*, s.nombre as sector_nombre, sub.nombre as subsector_nombre,
+                       COALESCE(ul.nombre_completo, ul.username) as lider_nombre,
+                       COALESCE(ug.nombre_completo, ug.username) as gerente_nombre
+                FROM FP_EQUIPOS e
+                LEFT JOIN FP_SECTORES s ON s.id = e.sector_id
+                LEFT JOIN FP_SUBSECTORES sub ON sub.id = e.subsector_id
+                LEFT JOIN FP_SOF_USUARIOS ul ON (ul.id = e.lider_usuario_id OR (e.lider_usuario_id IS NULL AND ul.legajo = e.lider_legajo))
+                LEFT JOIN FP_SOF_USUARIOS ug ON (ug.id = e.gerente_usuario_id OR (e.gerente_usuario_id IS NULL AND ug.legajo = e.gerente_legajo))
+                WHERE e.id = ?";
+        $stmt = sqlsrv_query($this->db, $sql, [(int)$id]);
+        $equipo = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC);
+        if (!$equipo) return null;
+
+        // Miembros
+        $sqlM = "SELECT m.*, u.username, u.nombre_completo, u.email, r.nombre as rol_nombre, sub.nombre as subsector_nombre
+                 FROM FP_EQUIPO_MIEMBROS m
+                 LEFT JOIN FP_SOF_USUARIOS u ON (u.id = m.usuario_id OR (m.usuario_id IS NULL AND u.legajo = m.legajo))
+                 LEFT JOIN FP_ROLES_PERMISOS_MAP r ON r.id = u.rol_id
+                 LEFT JOIN FP_SUBSECTORES sub ON sub.id = u.subsector_id
+                 WHERE m.equipo_id = ? AND m.activo = 1
+                 ORDER BY CASE WHEN m.rol_en_equipo = 'LIDER' THEN 0 ELSE 1 END, u.nombre_completo ASC";
+        $stmtM = sqlsrv_query($this->db, $sqlM, [(int)$id]);
+        $miembros = [];
+        if ($stmtM) {
+            while ($rm = sqlsrv_fetch_array($stmtM, SQLSRV_FETCH_ASSOC)) {
+                $miembros[] = $rm;
+            }
+        }
+        $equipo['miembros'] = $miembros;
+        return $equipo;
+    }
+
+    public function crearEquipo($datos) {
+        $nombre = trim($datos['nombre'] ?? '');
+        $sectorId = (int)($datos['sector_id'] ?? 0);
+        $subsectorId = !empty($datos['subsector_id']) ? (int)$datos['subsector_id'] : null;
+        $liderLegajo = !empty($datos['lider_legajo']) ? (int)$datos['lider_legajo'] : null;
+        $liderUserId = !empty($datos['lider_usuario_id']) ? (int)$datos['lider_usuario_id'] : null;
+        $gerenteLegajo = !empty($datos['gerente_legajo']) ? (int)$datos['gerente_legajo'] : null;
+        $gerenteUserId = !empty($datos['gerente_usuario_id']) ? (int)$datos['gerente_usuario_id'] : null;
+        $tipoFlujo = trim($datos['tipo_flujo'] ?? 'CENTRAL');
+        $desc = trim($datos['descripcion'] ?? '');
+        $miembros = $datos['miembros'] ?? []; // array de ['legajo' => ..., 'usuario_id' => ..., 'rol_en_equipo' => ...]
+
+        if (empty($nombre) || $sectorId <= 0) {
+            throw new Exception("El nombre y el sector son obligatorios para crear el equipo.");
+        }
+
+        sqlsrv_begin_transaction($this->db);
+        try {
+            $sql = "INSERT INTO FP_EQUIPOS (nombre, sector_id, subsector_id, lider_legajo, lider_usuario_id, gerente_legajo, gerente_usuario_id, tipo_flujo, descripcion, activo)
+                    OUTPUT INSERTED.id
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)";
+            $stmt = sqlsrv_query($this->db, $sql, [$nombre, $sectorId, $subsectorId, $liderLegajo, $liderUserId, $gerenteLegajo, $gerenteUserId, $tipoFlujo, $desc]);
+            if (!$stmt) {
+                throw new Exception("Error al insertar equipo: " . print_r(sqlsrv_errors(), true));
+            }
+            $row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC);
+            $equipoId = (int)$row['id'];
+
+            if (!empty($miembros)) {
+                $sqlM = "INSERT INTO FP_EQUIPO_MIEMBROS (equipo_id, legajo, usuario_id, rol_en_equipo, es_critico, activo) VALUES (?, ?, ?, ?, ?, 1)";
+                foreach ($miembros as $m) {
+                    $leg = (int)($m['legajo'] ?? 0);
+                    if ($leg <= 0) continue;
+                    $uId = !empty($m['usuario_id']) ? (int)$m['usuario_id'] : null;
+                    $rolEq = trim($m['rol_en_equipo'] ?? 'MIEMBRO');
+                    $esCrit = !empty($m['es_critico']) ? 1 : 0;
+                    sqlsrv_query($this->db, $sqlM, [$equipoId, $leg, $uId, $rolEq, $esCrit]);
+                }
+            }
+
+            sqlsrv_commit($this->db);
+            return $equipoId;
+        } catch (Exception $e) {
+            sqlsrv_rollback($this->db);
+            throw $e;
+        }
+    }
+
+    public function actualizarEquipo($id, $datos) {
+        $id = (int)$id;
+        $nombre = trim($datos['nombre'] ?? '');
+        $sectorId = (int)($datos['sector_id'] ?? 0);
+        $subsectorId = !empty($datos['subsector_id']) ? (int)$datos['subsector_id'] : null;
+        $liderLegajo = !empty($datos['lider_legajo']) ? (int)$datos['lider_legajo'] : null;
+        $liderUserId = !empty($datos['lider_usuario_id']) ? (int)$datos['lider_usuario_id'] : null;
+        $gerenteLegajo = !empty($datos['gerente_legajo']) ? (int)$datos['gerente_legajo'] : null;
+        $gerenteUserId = !empty($datos['gerente_usuario_id']) ? (int)$datos['gerente_usuario_id'] : null;
+        $tipoFlujo = trim($datos['tipo_flujo'] ?? 'CENTRAL');
+        $desc = trim($datos['descripcion'] ?? '');
+        $activo = isset($datos['activo']) ? (int)$datos['activo'] : 1;
+        $miembros = $datos['miembros'] ?? null;
+
+        if ($id <= 0 || empty($nombre) || $sectorId <= 0) {
+            throw new Exception("Datos incompletos para actualizar el equipo.");
+        }
+
+        sqlsrv_begin_transaction($this->db);
+        try {
+            $sql = "UPDATE FP_EQUIPOS SET nombre = ?, sector_id = ?, subsector_id = ?, lider_legajo = ?, lider_usuario_id = ?, gerente_legajo = ?, gerente_usuario_id = ?, tipo_flujo = ?, descripcion = ?, activo = ?, updated_at = GETDATE() WHERE id = ?";
+            $stmt = sqlsrv_query($this->db, $sql, [$nombre, $sectorId, $subsectorId, $liderLegajo, $liderUserId, $gerenteLegajo, $gerenteUserId, $tipoFlujo, $desc, $activo, $id]);
+            if (!$stmt) {
+                throw new Exception("Error al actualizar equipo: " . print_r(sqlsrv_errors(), true));
+            }
+
+            if (is_array($miembros)) {
+                sqlsrv_query($this->db, "DELETE FROM FP_EQUIPO_MIEMBROS WHERE equipo_id = ?", [$id]);
+                $sqlM = "INSERT INTO FP_EQUIPO_MIEMBROS (equipo_id, legajo, usuario_id, rol_en_equipo, es_critico, activo) VALUES (?, ?, ?, ?, ?, 1)";
+                foreach ($miembros as $m) {
+                    $leg = (int)($m['legajo'] ?? 0);
+                    if ($leg <= 0) continue;
+                    $uId = !empty($m['usuario_id']) ? (int)$m['usuario_id'] : null;
+                    $rolEq = trim($m['rol_en_equipo'] ?? 'MIEMBRO');
+                    $esCrit = !empty($m['es_critico']) ? 1 : 0;
+                    sqlsrv_query($this->db, $sqlM, [$id, $leg, $uId, $rolEq, $esCrit]);
+                }
+            }
+
+            sqlsrv_commit($this->db);
+            return true;
+        } catch (Exception $e) {
+            sqlsrv_rollback($this->db);
+            throw $e;
+        }
+    }
+
+    public function eliminarEquipo($id) {
+        $id = (int)$id;
+        if ($id <= 0) return false;
+        sqlsrv_begin_transaction($this->db);
+        try {
+            sqlsrv_query($this->db, "DELETE FROM FP_EQUIPO_MIEMBROS WHERE equipo_id = ?", [$id]);
+            sqlsrv_query($this->db, "DELETE FROM FP_EQUIPOS WHERE id = ?", [$id]);
+            sqlsrv_commit($this->db);
+            return true;
+        } catch (Exception $e) {
+            sqlsrv_rollback($this->db);
+            throw $e;
+        }
+    }
+
+    public function buscarUsuariosParaEquipo($q = '', $sectorId = null) {
+        $sql = "SELECT u.id, u.legajo, u.username, u.nombre_completo, u.sector_id, u.subsector_id, u.rol_id,
+                       s.nombre as sector_nombre, sub.nombre as subsector_nombre, r.nombre as rol_nombre
+                FROM FP_SOF_USUARIOS u
+                LEFT JOIN FP_SECTORES s ON s.id = u.sector_id
+                LEFT JOIN FP_SUBSECTORES sub ON sub.id = u.subsector_id
+                LEFT JOIN FP_ROLES_PERMISOS_MAP r ON r.id = u.rol_id
+                WHERE u.activo = 1 AND u.legajo IS NOT NULL AND u.legajo > 0";
+        $params = [];
+        if (!empty($q)) {
+            $sql .= " AND (u.nombre_completo LIKE ? OR u.username LIKE ? OR CAST(u.legajo AS VARCHAR) LIKE ?)";
+            $b = "%$q%";
+            $params[] = $b;
+            $params[] = $b;
+            $params[] = $b;
+        }
+        if ($sectorId) {
+            $sql .= " AND u.sector_id = ?";
+            $params[] = (int)$sectorId;
+        }
+        $sql .= " ORDER BY u.nombre_completo ASC";
+        $stmt = sqlsrv_query($this->db, $sql, $params);
+        $res = [];
+        if ($stmt) {
+            while ($r = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+                $res[] = $r;
+            }
+        }
+        return $res;
+    }
 }
+

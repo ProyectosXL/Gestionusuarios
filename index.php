@@ -179,59 +179,12 @@ if (isset($_GET['action']) && $_GET['action'] === 'exportar_excel_usuarios') {
 }
 
 // ==================== PROCESAMIENTO DE PETICIONES AJAX ====================
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax']) && $_POST['ajax'] == '1') {
+if ((isset($_POST['ajax']) && $_POST['ajax'] == '1') || (isset($_GET['ajax']) && $_GET['ajax'] == '1')) {
     header('Content-Type: application/json; charset=utf-8');
-    $action = $_POST['action'] ?? '';
+    $action = $_POST['action'] ?? $_GET['action'] ?? '';
     
-    // 1. Actualizar Relevamiento Usuario Individual
-    if ($action === 'actualizar_relevamiento') {
-        $userId = (int)($_POST['user_id'] ?? 0);
-        $estado = trim($_POST['estado'] ?? 'PENDIENTE');
-        $obs = trim($_POST['obs'] ?? '');
-        $usuarioQuien = $_SESSION['username'] ?? 'FRANCO';
-        try {
-            $usuarioModel->actualizarRelevamiento($userId, $estado, $obs, $usuarioQuien);
-            $stats = $usuarioModel->obtenerEstadisticasRelevamiento();
-            echo json_encode(['ok' => true, 'mensaje' => 'Relevamiento actualizado', 'stats' => $stats]);
-        } catch (\Exception $e) {
-            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
-        }
-        exit;
-    } 
-    // 2. Marcar Lote por IDs
-    elseif ($action === 'marcar_lote_relevamiento') {
-        $ids = $_POST['user_ids'] ?? [];
-        $estado = trim($_POST['estado'] ?? 'OK');
-        $obs = trim($_POST['obs'] ?? '');
-        $usuarioQuien = $_SESSION['username'] ?? 'FRANCO';
-        try {
-            $af = $usuarioModel->marcarLoteRelevamiento($ids, $estado, $obs, $usuarioQuien);
-            $stats = $usuarioModel->obtenerEstadisticasRelevamiento();
-            echo json_encode(['ok' => true, 'afectados' => $af, 'stats' => $stats]);
-        } catch (\Exception $e) {
-            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
-        }
-        exit;
-    }
-    // 3. Marcar TODO el Filtro Actual (Todas las páginas)
-    elseif ($action === 'marcar_filtro_relevamiento') {
-        $busqueda = trim($_POST['q_rel'] ?? '');
-        $estadoActual = trim($_POST['estado_rel'] ?? '');
-        $categoria = trim($_POST['cat_rel'] ?? '');
-        $nuevoEstado = trim($_POST['nuevo_estado'] ?? 'OK');
-        $obs = trim($_POST['obs'] ?? '');
-        $usuarioQuien = $_SESSION['username'] ?? 'FRANCO';
-        try {
-            $af = $usuarioModel->marcarFiltroRelevamiento($busqueda, $estadoActual, $categoria, $nuevoEstado, $obs, $usuarioQuien);
-            $stats = $usuarioModel->obtenerEstadisticasRelevamiento();
-            echo json_encode(['ok' => true, 'afectados' => $af, 'stats' => $stats]);
-        } catch (\Exception $e) {
-            echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
-        }
-        exit;
-    }
     // 4. Toggle Permiso Hub Rol (Switch Individual)
-    elseif ($action === 'toggle_permiso_hub_rol') {
+    if ($action === 'toggle_permiso_hub_rol') {
         $rolId = (int)($_POST['rol_id'] ?? 0);
         $permisoId = (int)($_POST['permiso_id'] ?? 0);
         $activo = (int)($_POST['activo'] ?? 0);
@@ -510,6 +463,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax']) && $_POST['aj
         exit;
     }
     
+    if ($action === 'obtener_equipo_ajax') {
+        $eqId = (int)($_GET['equipo_id'] ?? 0);
+        $equipo = $estructuraModel->obtenerEquipo($eqId);
+        echo json_encode(['ok' => ($equipo !== null), 'equipo' => $equipo]);
+        exit;
+    }
+
+    if ($action === 'buscar_usuarios_equipo_ajax') {
+        $q = trim($_GET['q'] ?? '');
+        $secId = !empty($_GET['sector_id']) ? (int)$_GET['sector_id'] : null;
+        $usuarios = $estructuraModel->buscarUsuariosParaEquipo($q, $secId);
+        echo json_encode(['ok' => true, 'usuarios' => $usuarios]);
+        exit;
+    }
+
     echo json_encode(['ok' => false, 'error' => 'Acción AJAX desconocida']);
     exit;
 }
@@ -694,21 +662,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $redirectUrl = "?tab=roles";
     }
-    // 7. Actualizar Relevamiento Form Submit
-    elseif ($action === 'guardar_obs_relevamiento') {
-        $userId = (int)($_POST['user_id'] ?? 0);
-        $estado = trim($_POST['estado'] ?? 'PENDIENTE');
-        $obs = trim($_POST['obs'] ?? '');
-        $usuarioQuien = $_SESSION['username'] ?? 'FRANCO';
-        if ($userId > 0) {
-            $usuarioModel->actualizarRelevamiento($userId, $estado, $obs, $usuarioQuien);
-            $_SESSION['flash_msg'] = [
-                'texto' => "Observación y estado de relevamiento guardados para el usuario #$userId.",
-                'tipo' => 'success'
-            ];
-        }
-        $redirectUrl = "?tab=relevamiento" . (isset($_POST['query_string']) ? '&' . $_POST['query_string'] : '');
-    }
     // 8. Crear / Editar Módulo
     elseif ($action === 'guardar_modulo') {
         $moduloId = (int)($_POST['modulo_id'] ?? 0);
@@ -754,6 +707,69 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $redirectUrl = "?tab=modulos";
     }
+    // 10. Guardar Equipo (Crear / Actualizar)
+    elseif ($action === 'guardar_equipo') {
+        $equipoId = (int)($_POST['equipo_id'] ?? 0);
+        $datos = [
+            'nombre' => trim($_POST['nombre'] ?? ''),
+            'sector_id' => (int)($_POST['sector_id'] ?? 0),
+            'subsector_id' => !empty($_POST['subsector_id']) ? (int)$_POST['subsector_id'] : null,
+            'lider_legajo' => !empty($_POST['lider_legajo']) ? (int)$_POST['lider_legajo'] : null,
+            'lider_usuario_id' => !empty($_POST['lider_usuario_id']) ? (int)$_POST['lider_usuario_id'] : null,
+            'gerente_legajo' => !empty($_POST['gerente_legajo']) ? (int)$_POST['gerente_legajo'] : null,
+            'gerente_usuario_id' => !empty($_POST['gerente_usuario_id']) ? (int)$_POST['gerente_usuario_id'] : null,
+            'tipo_flujo' => trim($_POST['tipo_flujo'] ?? 'CENTRAL'),
+            'descripcion' => trim($_POST['descripcion'] ?? ''),
+            'activo' => isset($_POST['activo']) ? 1 : 0
+        ];
+
+        // Parsear miembros si vienen del formulario
+        if (isset($_POST['miembros_legajos']) && is_array($_POST['miembros_legajos'])) {
+            $miembros = [];
+            foreach ($_POST['miembros_legajos'] as $idx => $leg) {
+                $legInt = (int)$leg;
+                if ($legInt > 0) {
+                    $uId = !empty($_POST['miembros_user_ids'][$idx]) ? (int)$_POST['miembros_user_ids'][$idx] : null;
+                    $rolEq = trim($_POST['miembros_roles'][$idx] ?? 'MIEMBRO');
+                    $esCrit = !empty($_POST['miembros_criticos'][$idx]) ? 1 : 0;
+                    $miembros[] = [
+                        'legajo' => $legInt,
+                        'usuario_id' => $uId,
+                        'rol_en_equipo' => $rolEq,
+                        'es_critico' => $esCrit,
+                    ];
+                }
+            }
+            $datos['miembros'] = $miembros;
+        }
+
+        try {
+            if ($equipoId > 0) {
+                $estructuraModel->actualizarEquipo($equipoId, $datos);
+                $_SESSION['flash_msg'] = ['texto' => "Equipo '{$datos['nombre']}' actualizado con éxito.", 'tipo' => 'success'];
+            } else {
+                $nuevoId = $estructuraModel->crearEquipo($datos);
+                $_SESSION['flash_msg'] = ['texto' => "Equipo '{$datos['nombre']}' (#$nuevoId) creado con éxito.", 'tipo' => 'success'];
+            }
+        } catch (\Exception $e) {
+            $_SESSION['flash_msg'] = ['texto' => $e->getMessage(), 'tipo' => 'error'];
+        }
+        $redirectUrl = "?tab=equipos";
+    }
+    // 11. Eliminar Equipo
+    elseif ($action === 'eliminar_equipo') {
+        $equipoId = (int)($_POST['equipo_id'] ?? 0);
+        $nombreEq = trim($_POST['nombre_equipo'] ?? '');
+        if ($equipoId > 0) {
+            try {
+                $estructuraModel->eliminarEquipo($equipoId);
+                $_SESSION['flash_msg'] = ['texto' => "Equipo '$nombreEq' eliminado correctamente.", 'tipo' => 'success'];
+            } catch (\Exception $e) {
+                $_SESSION['flash_msg'] = ['texto' => $e->getMessage(), 'tipo' => 'error'];
+            }
+        }
+        $redirectUrl = "?tab=equipos";
+    }
 
     header("Location: " . $redirectUrl);
     exit;
@@ -765,12 +781,6 @@ if (isset($_SESSION['flash_msg'])) {
     $tipoMensaje = $_SESSION['flash_msg']['tipo'] ?? 'success';
     unset($_SESSION['flash_msg']);
 }
-
-// Estadísticas de Relevamiento
-$statsRelevamiento = $usuarioModel->obtenerEstadisticasRelevamiento();
-$porcentajeCompletitud = $statsRelevamiento['total'] > 0 
-    ? round((($statsRelevamiento['ok'] + $statsRelevamiento['observado'] + $statsRelevamiento['descartado']) / $statsRelevamiento['total']) * 100, 1) 
-    : 0;
 
 // Filtros y Paginación para Usuarios
 $busqueda = trim($_GET['q'] ?? '');
@@ -812,26 +822,12 @@ $categoriasHubExistentes = array_values(array_unique(array_filter(array_map(func
 sort($categoriasHubExistentes);
 $matrizEstructuraHub = ($tab === 'hub_matriz') ? $estructuraModel->obtenerMatrizEstructuraCompleta() : [];
 
-// Filtros y Paginación para Relevamiento
-$relBusqueda = trim($_GET['q_rel'] ?? '');
-$relEstado = trim($_GET['estado_rel'] ?? '');
-$relCategoria = trim($_GET['cat_rel'] ?? '');
-$relPagina = max(1, (int)($_GET['p_rel'] ?? 1));
-$relPorPagina = max(10, min(1000, (int)($_GET['rel_limit'] ?? 30)));
-$relOffset = ($relPagina - 1) * $relPorPagina;
-
-if ($tab === 'relevamiento') {
-    $totalRelevamiento = $usuarioModel->totalRelevamiento($relBusqueda, $relEstado, $relCategoria);
-    $listaRelevamiento = $usuarioModel->listarRelevamiento($relBusqueda, $relEstado, $relCategoria, $relPorPagina, $relOffset);
-    $relTotalPaginas = max(1, ceil($totalRelevamiento / $relPorPagina));
-} else {
-    $totalRelevamiento = $statsRelevamiento['total'] ?? 0;
-    $listaRelevamiento = [];
-    $relTotalPaginas = 1;
-}
-
 // Mapa de permisos por rol en 1 sola consulta SQL
 $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
+
+// Lista de Equipos de Trabajo
+$equiposTotal = ($tab === 'equipos') ? $estructuraModel->listarEquipos() : [];
+$usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosParaEquipo() : [];
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -928,12 +924,6 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
                 <a href="?tab=usuarios" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition <?= $tab === 'usuarios' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900' ?>">
                     <i class="fas fa-users mr-1.5"></i> Usuarios (<?= number_format($totalUsuarios) ?>)
                 </a>
-                <a href="?tab=relevamiento" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition <?= $tab === 'relevamiento' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900' ?>">
-                    <i class="fas fa-clipboard-check mr-1.5 text-emerald-600"></i> Relevamiento & Checklist
-                    <span id="badgeHeaderRelev" class="ml-1 px-1.5 py-0.2 rounded-full text-[10px] <?= $statsRelevamiento['ok'] > 0 ? 'bg-emerald-100 text-emerald-800 font-bold' : 'bg-slate-200 text-slate-600' ?>">
-                        <?= $statsRelevamiento['ok'] ?>/<?= $statsRelevamiento['total'] ?>
-                    </span>
-                </a>
                 <a href="?tab=hub_matriz" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition <?= $tab === 'hub_matriz' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900' ?>">
                     <i class="fas fa-shapes mr-1.5 text-indigo-600"></i> Matriz Hub & Accesos
                     <span class="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-100 text-indigo-800 font-bold">
@@ -948,6 +938,9 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
                 </a>
                 <a href="?tab=modulos" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition <?= $tab === 'modulos' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900' ?>">
                     <i class="fas fa-cubes mr-1.5 text-indigo-600"></i> Módulos & Apps (<?= count($modulosTodos) ?>)
+                </a>
+                <a href="?tab=equipos" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition <?= $tab === 'equipos' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900' ?>">
+                    <i class="fas fa-people-roof mr-1.5 text-blue-600"></i> Equipos de Trabajo (<?= count($equiposTotal ?? []) ?>)
                 </a>
             </div>
         </div>
@@ -975,350 +968,8 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
             </script>
         <?php endif; ?>
 
-        <!-- ========================================== PESTAÑA: RELEVAMIENTO & CHECKLIST ========================================== -->
-        <?php if($tab === 'relevamiento'): ?>
-            <!-- Dashboard de Indicadores & Avance del Relevamiento -->
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-5">
-                <!-- Tarjeta 1: Avance General con Barra de Progreso -->
-                <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs flex flex-col justify-between">
-                    <div class="flex items-center justify-between mb-1">
-                        <span class="text-[11px] font-bold tracking-wider text-slate-400 uppercase">Avance General</span>
-                        <span id="kpiPorcentajeBadge" class="px-2 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-100">
-                            <?= $porcentajeCompletitud ?>%
-                        </span>
-                    </div>
-                    <div class="mb-2">
-                        <h4 class="text-2xl font-extrabold text-slate-900" id="kpiTotalAuditados">
-                            <?= ($statsRelevamiento['ok'] + $statsRelevamiento['observado'] + $statsRelevamiento['descartado']) ?> <span class="text-sm font-semibold text-slate-400">/ <?= $statsRelevamiento['total'] ?></span>
-                        </h4>
-                        <p class="text-[11px] text-slate-500">Cuentas Auditadas</p>
-                    </div>
-                    <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                        <div id="kpiProgressBar" class="bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-500 h-2 rounded-full transition-all duration-500" style="width: <?= $porcentajeCompletitud ?>%"></div>
-                    </div>
-                </div>
-
-                <!-- Tarjeta 2: Validados & Funcionales OK -->
-                <a href="?tab=relevamiento&estado_rel=OK" class="bg-white rounded-2xl p-4 border border-slate-200 hover:border-emerald-300 shadow-xs flex items-center justify-between transition group">
-                    <div>
-                        <p class="text-[11px] font-bold tracking-wider text-emerald-600 uppercase flex items-center gap-1.5">
-                            <i class="fas fa-circle-check"></i> Validados OK
-                        </p>
-                        <h4 class="text-2xl font-extrabold text-slate-900 mt-0.5" id="kpiOkCount"><?= number_format($statsRelevamiento['ok']) ?></h4>
-                        <span class="text-[11px] text-slate-400">Listos y funcionales</span>
-                    </div>
-                    <div class="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center group-hover:scale-110 transition shadow-xs">
-                        <i class="fas fa-check-double text-lg"></i>
-                    </div>
-                </a>
-
-                <!-- Tarjeta 3: Con Observaciones / A Ajustar -->
-                <a href="?tab=relevamiento&estado_rel=OBSERVADO" class="bg-white rounded-2xl p-4 border border-slate-200 hover:border-amber-300 shadow-xs flex items-center justify-between transition group">
-                    <div>
-                        <p class="text-[11px] font-bold tracking-wider text-amber-600 uppercase flex items-center gap-1.5">
-                            <i class="fas fa-triangle-exclamation"></i> Observados
-                        </p>
-                        <h4 class="text-2xl font-extrabold text-amber-600 mt-0.5" id="kpiObsCount"><?= number_format($statsRelevamiento['observado']) ?></h4>
-                        <span class="text-[11px] text-slate-400">Requieren ajuste</span>
-                    </div>
-                    <div class="w-11 h-11 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center group-hover:scale-110 transition shadow-xs">
-                        <i class="fas fa-clipboard-list text-lg"></i>
-                    </div>
-                </a>
-
-                <!-- Tarjeta 4: Pendientes de Validación -->
-                <a href="?tab=relevamiento&estado_rel=PENDIENTE" class="bg-white rounded-2xl p-4 border border-slate-200 hover:border-indigo-300 shadow-xs flex items-center justify-between transition group">
-                    <div>
-                        <p class="text-[11px] font-bold tracking-wider text-slate-500 uppercase flex items-center gap-1.5">
-                            <i class="fas fa-clock"></i> Pendientes
-                        </p>
-                        <h4 class="text-2xl font-extrabold text-slate-700 mt-0.5" id="kpiPendCount"><?= number_format($statsRelevamiento['pendiente']) ?></h4>
-                        <span class="text-[11px] text-slate-400">Por verificar</span>
-                    </div>
-                    <div class="w-11 h-11 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center group-hover:scale-110 transition shadow-xs">
-                        <i class="fas fa-hourglass-half text-lg"></i>
-                    </div>
-                </a>
-            </div>
-
-            <!-- Desglose Rápido por Categorías (Mini-Barras de Progreso) -->
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-                <?php
-                    $catsConf = [
-                        'PERSONAL' => ['label' => 'Personal Staff', 'icon' => 'fa-user-tie', 'color' => 'text-emerald-700', 'bg' => 'bg-emerald-500'],
-                        'LOCAL' => ['label' => 'Locales / Sucursales', 'icon' => 'fa-store', 'color' => 'text-blue-700', 'bg' => 'bg-blue-500'],
-                        'MAYORISTA' => ['label' => 'Mayoristas B2B', 'icon' => 'fa-boxes-packing', 'color' => 'text-teal-700', 'bg' => 'bg-teal-500'],
-                        'GRUPO' => ['label' => 'Grupos Franquicia', 'icon' => 'fa-sitemap', 'color' => 'text-amber-700', 'bg' => 'bg-amber-500'],
-                    ];
-                ?>
-                <?php foreach($catsConf as $kCat => $cConf): ?>
-                    <?php
-                        $catTotal = $statsRelevamiento['por_categoria'][$kCat]['total'] ?? 0;
-                        $catOk = $statsRelevamiento['por_categoria'][$kCat]['ok'] ?? 0;
-                        $catPct = $catTotal > 0 ? round(($catOk / $catTotal) * 100, 1) : 0;
-                    ?>
-                    <a href="?tab=relevamiento&cat_rel=<?= $kCat ?>" class="bg-white p-3 rounded-xl border border-slate-200 hover:border-slate-300 shadow-2xs transition">
-                        <div class="flex items-center justify-between text-xs mb-1.5">
-                            <span class="font-semibold text-slate-700 flex items-center gap-1.5">
-                                <i class="fas <?= $cConf['icon'] ?> <?= $cConf['color'] ?>"></i> <?= $cConf['label'] ?>
-                            </span>
-                            <span class="font-bold <?= $cConf['color'] ?>"><?= $catOk ?>/<?= $catTotal ?></span>
-                        </div>
-                        <div class="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                            <div class="<?= $cConf['bg'] ?> h-1.5 rounded-full" style="width: <?= $catPct ?>%"></div>
-                        </div>
-                    </a>
-                <?php endforeach; ?>
-            </div>
-
-            <!-- Barra de Filtros, Acciones en Lote & Selector de Registros por Página -->
-            <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs mb-4 flex flex-wrap items-center justify-between gap-3">
-                <form method="GET" id="formFiltroRelev" class="flex flex-wrap items-center gap-2.5 flex-1">
-                    <input type="hidden" name="tab" value="relevamiento">
-                    
-                    <div class="relative flex-1 min-w-[200px]">
-                        <i id="searchIconRel" class="fas fa-search absolute left-3.5 top-2.5 text-slate-400 text-xs transition-all"></i>
-                        <input type="text" name="q_rel" id="inputBusquedaRel" value="<?= htmlspecialchars($relBusqueda) ?>" placeholder="Buscar por usuario, nombre, cliente o notas..." 
-                                class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
-                    </div>
-
-                    <div class="w-36">
-                        <select name="estado_rel" id="selectEstadoRel" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
-                            <option value="">Todos los Estados</option>
-                            <option value="PENDIENTE" <?= $relEstado === 'PENDIENTE' ? 'selected' : '' ?>>⏳ Pendientes</option>
-                            <option value="OK" <?= $relEstado === 'OK' ? 'selected' : '' ?>>✅ Validados OK</option>
-                            <option value="OBSERVADO" <?= $relEstado === 'OBSERVADO' ? 'selected' : '' ?>>⚠️ Con Observación</option>
-                            <option value="DESCARTADO" <?= $relEstado === 'DESCARTADO' ? 'selected' : '' ?>>🚫 Descartados</option>
-                        </select>
-                    </div>
-
-                    <div class="w-36">
-                        <select name="cat_rel" id="selectCatRel" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
-                            <option value="">Todas las Categorías</option>
-                            <option value="PERSONAL" <?= $relCategoria === 'PERSONAL' ? 'selected' : '' ?>>👤 Personal Staff</option>
-                            <option value="LOCAL" <?= $relCategoria === 'LOCAL' ? 'selected' : '' ?>>🏪 Locales / Sucursales</option>
-                            <option value="MAYORISTA" <?= $relCategoria === 'MAYORISTA' ? 'selected' : '' ?>>📦 Mayoristas B2B</option>
-                            <option value="GRUPO" <?= $relCategoria === 'GRUPO' ? 'selected' : '' ?>>🏢 Grupos Franquicia</option>
-                        </select>
-                    </div>
-
-                    <!-- Selector Registros por Página -->
-                    <div class="w-32">
-                        <select name="rel_limit" onchange="document.getElementById('formFiltroRelev').submit()" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
-                            <option value="30" <?= $relPorPagina == 30 ? 'selected' : '' ?>>30 por pág</option>
-                            <option value="50" <?= $relPorPagina == 50 ? 'selected' : '' ?>>50 por pág</option>
-                            <option value="100" <?= $relPorPagina == 100 ? 'selected' : '' ?>>100 por pág</option>
-                            <option value="250" <?= $relPorPagina == 250 ? 'selected' : '' ?>>250 por pág</option>
-                            <option value="500" <?= $relPorPagina == 500 ? 'selected' : '' ?>>500 por pág</option>
-                            <option value="1000" <?= $relPorPagina >= 1000 ? 'selected' : '' ?>>Ver Todos (<?= $totalRelevamiento ?>)</option>
-                        </select>
-                    </div>
-
-                    <button type="submit" class="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold transition shadow-2xs cursor-pointer flex items-center gap-1.5">
-                        <i class="fas fa-filter text-[10px]"></i> Filtrar
-                    </button>
-                    <?php if(!empty($relBusqueda) || !empty($relEstado) || !empty($relCategoria) || $relPorPagina != 30): ?>
-                        <a href="?tab=relevamiento" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-medium transition">
-                            Limpiar
-                        </a>
-                    <?php endif; ?>
-                </form>
-
-                <!-- Acciones Rápidas en Lote & Exportar -->
-                <div class="flex items-center space-x-2 flex-wrap">
-                    <button type="button" onclick="abrirModalConfirmarFiltroOK(<?= $totalRelevamiento ?>)" class="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition shadow-xs flex items-center gap-1.5 cursor-pointer">
-                        <i class="fas fa-check-double"></i> Marcar <?= $totalRelevamiento ?> Filtrados como OK
-                    </button>
-                    <button type="button" onclick="exportarChecklistCSV()" class="px-3.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-semibold transition shadow-2xs flex items-center gap-1.5 cursor-pointer">
-                        <i class="fas fa-file-csv text-slate-500"></i> Exportar CSV
-                    </button>
-                </div>
-            </div>
-
-            <!-- Banner de Selección Total Multicapa (Cuando se tildan todos los visibles) -->
-            <div id="bannerSeleccionTotal" class="hidden mb-3 p-3 bg-indigo-50 border border-indigo-200 rounded-xl text-xs text-indigo-900 flex items-center justify-between shadow-xs animate-fade-in">
-                <div class="flex items-center space-x-2">
-                    <i class="fas fa-info-circle text-indigo-600 text-sm"></i>
-                    <span>Has seleccionado los <strong><?= count($listaRelevamiento) ?></strong> usuarios visibles de esta página.</span>
-                </div>
-                <button type="button" onclick="abrirModalConfirmarFiltroOK(<?= $totalRelevamiento ?>)" class="font-bold text-indigo-700 hover:text-indigo-900 underline bg-white px-2.5 py-1 rounded-lg border border-indigo-200 shadow-2xs cursor-pointer">
-                    👉 Marcar los <strong><?= $totalRelevamiento ?></strong> usuarios de este filtro como OK
-                </button>
-            </div>
-
-            <!-- Contenedor con SCROLL PROPIO para la Matriz / Tabla -->
-            <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden relative">
-                <!-- Overlay de carga interactivo -->
-                <div id="overlayLoadingRel" class="hidden absolute inset-0 bg-white/80 backdrop-blur-[1px] flex flex-col items-center justify-center z-30 transition-all duration-200">
-                    <div class="flex items-center space-x-2.5 bg-slate-900 text-white px-4 py-2.5 rounded-2xl shadow-xl text-xs font-semibold">
-                        <i class="fas fa-circle-notch fa-spin text-indigo-400 text-sm"></i>
-                        <span>Cargando datos...</span>
-                    </div>
-                </div>
-
-                <div class="tabla-scroll-container max-h-[62vh] overflow-y-auto overflow-x-auto relative">
-                    <table class="w-full text-left border-collapse text-xs">
-                        <thead class="sticky top-0 z-20 bg-slate-100/95 backdrop-blur-xs border-b border-slate-200 text-slate-600 font-bold uppercase text-[10px] tracking-wider shadow-2xs">
-                            <tr>
-                                <th class="py-3 px-3 text-center w-10 bg-slate-100">
-                                    <input type="checkbox" id="checkMasterRelev" onchange="toggleCheckMaster(this)" class="rounded text-indigo-600 focus:ring-indigo-500">
-                                </th>
-                                <th class="py-3 px-4 bg-slate-100">Usuario & Credenciales</th>
-                                <th class="py-3 px-4 bg-slate-100">Categoría / Tipo</th>
-                                <th class="py-3 px-4 bg-slate-100">Nombre / Local</th>
-                                <th class="py-3 px-4 bg-slate-100">Destino / Portal Real</th>
-                                <th class="py-3 px-4 text-center bg-slate-100">Estado del Relevamiento</th>
-                                <th class="py-3 px-4 bg-slate-100">Observaciones / Auditoría</th>
-                                <th class="py-3 px-4 text-center bg-slate-100">Acciones</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-100" id="tablaCuerpoRelevamiento">
-                            <?php if(empty($listaRelevamiento)): ?>
-                                <tr>
-                                    <td colspan="8" class="text-center py-12 text-slate-400 italic">
-                                        <i class="fas fa-clipboard-question text-3xl text-slate-300 block mb-2"></i>
-                                        No se encontraron usuarios bajo los criterios de relevamiento seleccionados.
-                                    </td>
-                                </tr>
-                            <?php else: ?>
-                                <?php foreach($listaRelevamiento as $u): ?>
-                                    <?php
-                                        $destino = calcularDestinoLogin($u);
-                                        $st = strtoupper(trim($u['relevamiento_estado'] ?? 'PENDIENTE'));
-                                        $passVal = $u['password'] ?: $u['password_plain'] ?: '';
-                                    ?>
-                                    <tr class="hover:bg-slate-50/90 transition group" id="fila-user-<?= $u['id'] ?>">
-                                        <!-- Checkbox Lote -->
-                                        <td class="py-3 px-3 text-center">
-                                            <input type="checkbox" value="<?= $u['id'] ?>" onchange="actualizarEstadoMasterCheck()" class="check-relev-item rounded text-indigo-600 focus:ring-indigo-500">
-                                        </td>
-
-                                        <!-- Usuario & Credenciales con botón de Copiar -->
-                                        <td class="py-3 px-4 font-mono">
-                                            <div class="flex items-center space-x-1.5">
-                                                <span class="font-bold text-slate-900 text-xs">@<?= htmlspecialchars($u['username']) ?></span>
-                                                <button type="button" onclick="copiarCredenciales('<?= htmlspecialchars($u['username']) ?>', '<?= htmlspecialchars($passVal) ?>')" 
-                                                        title="Copiar Usuario y Contraseña para login" class="text-slate-400 hover:text-indigo-600 p-1 rounded transition">
-                                                    <i class="fas fa-copy text-[11px]"></i>
-                                                </button>
-                                            </div>
-                                            <div class="mt-0.5 flex items-center gap-1.5">
-                                                <span class="text-[10px] text-slate-400">Pass:</span>
-                                                <span class="px-1.5 py-0.2 rounded bg-amber-50 border border-amber-200 text-amber-900 font-semibold text-[10px]">
-                                                    <?= htmlspecialchars($passVal ?: '-') ?>
-                                                </span>
-                                            </div>
-                                        </td>
-
-                                        <!-- Categoría / Tipo -->
-                                        <td class="py-3 px-4">
-                                            <?php if($u['categoria_usuario'] === 'GRUPO'): ?>
-                                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                                                    🏢 GRUPO
-                                                </span>
-                                                <span class="block text-[10px] text-slate-500 font-mono mt-0.5"><?= htmlspecialchars($u['cod_client'] ?: '-') ?></span>
-                                            <?php elseif($u['categoria_usuario'] === 'MAYORISTA'): ?>
-                                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-teal-50 text-teal-800 border border-teal-200">
-                                                    📦 MAYORISTA
-                                                </span>
-                                                <span class="block text-[10px] text-slate-500 font-mono mt-0.5"><?= htmlspecialchars($u['cod_client'] ?: '-') ?></span>
-                                            <?php elseif($u['categoria_usuario'] === 'LOCAL'): ?>
-                                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
-                                                    🏪 <?= htmlspecialchars($u['tipo'] ?: 'LOCAL') ?>
-                                                </span>
-                                                <span class="block text-[10px] text-slate-500 font-mono mt-0.5">Suc: <?= htmlspecialchars($u['nro_sucursal'] ?: $u['cod_client'] ?: '-') ?></span>
-                                            <?php else: ?>
-                                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                                                    👤 PERSONAL
-                                                </span>
-                                                <span class="block text-[10px] text-slate-400 font-mono mt-0.5"><?= !empty($u['legajo']) ? 'Leg. ' . $u['legajo'] : ($u['rol_nombre'] ?: 'Staff') ?></span>
-                                            <?php endif; ?>
-                                        </td>
-
-                                        <!-- Nombre Completo / Local -->
-                                        <td class="py-3 px-4 text-slate-700 font-medium">
-                                            <span class="line-clamp-1"><?= htmlspecialchars($u['nombre_completo'] ?: '-') ?></span>
-                                        </td>
-
-                                        <!-- Destino / Portal Real -->
-                                        <td class="py-3 px-4">
-                                            <span class="inline-flex items-center px-2 py-1 rounded-lg text-[10px] font-bold border <?= $destino['badge'] ?>">
-                                                <?= htmlspecialchars($destino['nombre']) ?>
-                                            </span>
-                                        </td>
-
-                                        <!-- Estado del Relevamiento (Checklist Rápido con AJAX) -->
-                                        <td class="py-3 px-4 text-center">
-                                            <div class="inline-flex rounded-xl bg-slate-100 p-0.5 border border-slate-200" id="btn-group-estado-<?= $u['id'] ?>">
-                                                <button type="button" onclick="cambiarEstadoRelevAjax(<?= $u['id'] ?>, 'OK')" 
-                                                        title="Marcar como Probado y Funcional OK"
-                                                        class="px-2.5 py-1 rounded-lg text-[10px] font-bold transition <?= $st === 'OK' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:text-emerald-700' ?>">
-                                                    <i class="fas fa-check mr-1"></i> OK
-                                                </button>
-                                                <button type="button" onclick="abrirModalObsRelev(<?= $u['id'] ?>, '<?= htmlspecialchars(addslashes($u['username'])) ?>', 'OBSERVADO', '<?= htmlspecialchars(addslashes($u['relevamiento_obs'] ?? '')) ?>')" 
-                                                        title="Marcar con Observación o Detalle a Ajustar"
-                                                        class="px-2.5 py-1 rounded-lg text-[10px] font-bold transition <?= $st === 'OBSERVADO' ? 'bg-amber-500 text-white shadow-xs' : 'text-slate-600 hover:text-amber-700' ?>">
-                                                    <i class="fas fa-exclamation-triangle mr-1"></i> Obs
-                                                </button>
-                                                <button type="button" onclick="cambiarEstadoRelevAjax(<?= $u['id'] ?>, 'PENDIENTE')" 
-                                                        title="Volver a Pendiente"
-                                                        class="px-2 py-1 rounded-lg text-[10px] font-bold transition <?= $st === 'PENDIENTE' ? 'bg-slate-300 text-slate-800' : 'text-slate-400 hover:text-slate-700' ?>">
-                                                    ⏳
-                                                </button>
-                                            </div>
-                                        </td>
-
-                                        <!-- Observaciones / Auditoría -->
-                                        <td class="py-3 px-4 text-slate-600">
-                                            <div id="obs-text-<?= $u['id'] ?>" class="text-[11px] <?= empty($u['relevamiento_obs']) ? 'italic text-slate-400' : 'font-medium text-slate-700' ?>">
-                                                <?= htmlspecialchars($u['relevamiento_obs'] ?: 'Sin notas') ?>
-                                            </div>
-                                            <?php if(!empty($u['relevamiento_usuario'])): ?>
-                                                <div class="text-[9px] text-slate-400 mt-0.5">
-                                                    Por <span class="font-semibold"><?= htmlspecialchars($u['relevamiento_usuario']) ?></span>
-                                                    <?= $u['relevamiento_fecha'] ? ' el ' . $u['relevamiento_fecha']->format('d/m H:i') : '' ?>
-                                                </div>
-                                            <?php endif; ?>
-                                        </td>
-
-                                        <!-- Acciones Rápidas -->
-                                        <td class="py-3 px-4 text-center">
-                                            <button type="button" onclick="abrirModalObsRelev(<?= $u['id'] ?>, '<?= htmlspecialchars(addslashes($u['username'])) ?>', '<?= $st ?>', '<?= htmlspecialchars(addslashes($u['relevamiento_obs'] ?? '')) ?>')" 
-                                                    title="Editar Nota / Detalle de Relevamiento" class="p-1.5 bg-slate-100 hover:bg-indigo-100 text-slate-600 hover:text-indigo-700 rounded-lg transition border border-slate-200">
-                                                <i class="fas fa-comment-dots text-xs"></i>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            <?php endif; ?>
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- Footer & Paginador Relevamiento -->
-                <div class="px-5 py-3 bg-slate-50/80 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
-                    <div>
-                        Mostrando <span class="font-bold text-slate-800"><?= count($listaRelevamiento) ?></span> de <span class="font-bold text-slate-800"><?= number_format($totalRelevamiento) ?></span> registros • Página <span class="font-bold text-slate-800"><?= $relPagina ?></span> de <span class="font-bold text-slate-800"><?= max(1, $relTotalPaginas) ?></span>
-                    </div>
-
-                    <?php if($relTotalPaginas > 1): ?>
-                        <div class="flex space-x-1.5">
-                            <?php if($relPagina > 1): ?>
-                                <a href="?tab=relevamiento&p_rel=<?= $relPagina - 1 ?>&q_rel=<?= urlencode($relBusqueda) ?>&estado_rel=<?= urlencode($relEstado) ?>&cat_rel=<?= urlencode($relCategoria) ?>&rel_limit=<?= $relPorPagina ?>" class="px-3 py-1 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-medium rounded-lg transition">Anterior</a>
-                            <?php endif; ?>
-                            
-                            <span class="px-3 py-1 bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold rounded-lg"><?= $relPagina ?></span>
-
-                            <?php if($relPagina < $relTotalPaginas): ?>
-                                <a href="?tab=relevamiento&p_rel=<?= $relPagina + 1 ?>&q_rel=<?= urlencode($relBusqueda) ?>&estado_rel=<?= urlencode($relEstado) ?>&cat_rel=<?= urlencode($relCategoria) ?>&rel_limit=<?= $relPorPagina ?>" class="px-3 py-1 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-medium rounded-lg transition">Siguiente</a>
-                            <?php endif; ?>
-                        </div>
-                    <?php endif; ?>
-                </div>
-            </div>
-
         <!-- ========================================== PESTAÑA: USUARIOS ========================================== -->
-        <?php elseif($tab === 'usuarios'): ?>
+        <?php if($tab === 'usuarios'): ?>
             <!-- Tarjetas Resumen Light / Acceso Rápido de Filtros -->
             <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
                 <a href="?tab=usuarios" class="bg-white rounded-2xl p-4 border <?= empty($categoriaFiltro) ? 'border-indigo-500 ring-2 ring-indigo-500/10' : 'border-slate-200/80 hover:border-slate-300' ?> shadow-xs flex items-center justify-between transition cursor-pointer group">
@@ -2560,6 +2211,141 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
                 <i class="fas fa-search text-slate-300 text-3xl mb-2 block"></i>
                 No se encontraron módulos que coincidan con la búsqueda.
             </div>
+
+        <!-- ========================================== PESTAÑA: EQUIPOS DE TRABAJO (CENTRAL Y LOCALES) ========================================== -->
+        <?php elseif($tab === 'equipos'): ?>
+            <!-- Header de Equipos -->
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs mb-6">
+                <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                    <div>
+                        <div class="flex items-center gap-2.5">
+                            <div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-lg shadow-2xs border border-blue-100">
+                                <i class="fas fa-people-roof"></i>
+                            </div>
+                            <div>
+                                <h2 class="text-base font-bold text-slate-900">Gestión de Equipos de Trabajo & Liderazgos</h2>
+                                <p class="text-xs text-slate-500">Definición de equipos por sector, asignación de Líder / Jefe, Gerente de Área y colaboradores para flujos jerárquicos (Vacaciones Central, autorizaciones y coberturas).</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap items-center gap-2.5">
+                        <div class="relative w-full sm:w-64">
+                            <i class="fas fa-search absolute left-3 top-2.5 text-slate-400 text-xs"></i>
+                            <input type="text" id="buscadorEquipos" oninput="filtrarEquiposEnVivo(this.value)" placeholder="Buscar equipo, líder, sector..." 
+                                   class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
+                        </div>
+
+                        <button type="button" onclick="abrirModalCrearEquipo()" 
+                                class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition flex items-center gap-1.5 shadow-xs cursor-pointer">
+                            <i class="fas fa-plus"></i> Nuevo Equipo
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tabla de Equipos -->
+            <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse text-xs" id="tablaEquipos">
+                        <thead>
+                            <tr class="bg-slate-50/80 border-b border-slate-200 text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                                <th class="py-3 px-4">Equipo de Trabajo</th>
+                                <th class="py-3 px-4">Sector General</th>
+                                <th class="py-3 px-4">Líder / Jefe de Equipo</th>
+                                <th class="py-3 px-4">Gerente Validador</th>
+                                <th class="py-3 px-4 text-center">Integrantes</th>
+                                <th class="py-3 px-4 text-center">Ámbito</th>
+                                <th class="py-3 px-4 text-center">Estado</th>
+                                <th class="py-3 px-4 text-right">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            <?php if(empty($equiposTotal)): ?>
+                                <tr>
+                                    <td colspan="8" class="text-center py-12 text-slate-400">
+                                        <i class="fas fa-people-roof text-3xl mb-2 text-slate-300 block"></i>
+                                        No hay equipos registrados aún. Cree uno nuevo para comenzar.
+                                    </td>
+                                </tr>
+                            <?php else: ?>
+                                <?php foreach($equiposTotal as $eq): ?>
+                                    <tr class="hover:bg-slate-50/60 transition item-equipo" data-search="<?= strtolower(htmlspecialchars($eq['nombre'] . ' ' . ($eq['sector_nombre'] ?? '') . ' ' . ($eq['lider_nombre'] ?? '') . ' ' . ($eq['gerente_nombre'] ?? ''))) ?>">
+                                        <td class="py-3.5 px-4">
+                                            <div class="font-bold text-slate-900"><?= htmlspecialchars($eq['nombre']) ?></div>
+                                            <?php if(!empty($eq['descripcion'])): ?>
+                                                <div class="text-[11px] text-slate-400 line-clamp-1"><?= htmlspecialchars($eq['descripcion']) ?></div>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td class="py-3.5 px-4">
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 text-slate-700">
+                                                <?= htmlspecialchars($eq['sector_nombre'] ?? 'Sin Sector') ?>
+                                            </span>
+                                        </td>
+                                        <td class="py-3.5 px-4">
+                                            <?php if(!empty($eq['lider_nombre'])): ?>
+                                                <div class="font-semibold text-slate-800 flex items-center gap-1.5">
+                                                    <i class="fas fa-user-tie text-blue-500 text-xs"></i>
+                                                    <?= htmlspecialchars($eq['lider_nombre']) ?>
+                                                </div>
+                                                <div class="text-[10px] text-slate-400">Legajo #<?= $eq['lider_legajo'] ?: '-' ?></div>
+                                            <?php else: ?>
+                                                <span class="text-slate-400 italic">Sin Líder Asignado</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td class="py-3.5 px-4">
+                                            <?php if(!empty($eq['gerente_nombre'])): ?>
+                                                <div class="font-semibold text-slate-800 flex items-center gap-1.5">
+                                                    <i class="fas fa-shield-halved text-purple-500 text-xs"></i>
+                                                    <?= htmlspecialchars($eq['gerente_nombre']) ?>
+                                                </div>
+                                                <div class="text-[10px] text-slate-400">Legajo #<?= $eq['gerente_legajo'] ?: '-' ?></div>
+                                            <?php else: ?>
+                                                <span class="text-slate-400 italic">Sin Gerente</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td class="py-3.5 px-4 text-center">
+                                            <button type="button" onclick="verMiembrosEquipo(<?= $eq['id'] ?>, '<?= htmlspecialchars(addslashes($eq['nombre'])) ?>')" 
+                                                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition cursor-pointer">
+                                                <i class="fas fa-users text-[10px]"></i>
+                                                <?= (int)$eq['cant_miembros'] ?> integrantes
+                                            </button>
+                                        </td>
+                                        <td class="py-3.5 px-4 text-center">
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold <?= $eq['tipo_flujo'] === 'LOCALES' ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200' ?>">
+                                                <?= htmlspecialchars($eq['tipo_flujo'] ?: 'CENTRAL') ?>
+                                            </span>
+                                        </td>
+                                        <td class="py-3.5 px-4 text-center">
+                                            <?php if($eq['activo']): ?>
+                                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800">Activo</span>
+                                            <?php else: ?>
+                                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-500">Inactivo</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td class="py-3.5 px-4 text-right">
+                                            <div class="flex items-center justify-end gap-1.5">
+                                                <button type="button" onclick="editarEquipo(<?= $eq['id'] ?>)" 
+                                                        class="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition" title="Editar Equipo">
+                                                    <i class="fas fa-pen text-xs"></i>
+                                                </button>
+                                                <form method="POST" onsubmit="return confirm('¿Está seguro de eliminar el equipo <?= htmlspecialchars(addslashes($eq['nombre'])) ?>? Los miembros no se eliminarán pero quedarán desvinculados del equipo.');" class="inline">
+                                                    <input type="hidden" name="action" value="eliminar_equipo">
+                                                    <input type="hidden" name="equipo_id" value="<?= $eq['id'] ?>">
+                                                    <input type="hidden" name="nombre_equipo" value="<?= htmlspecialchars($eq['nombre']) ?>">
+                                                    <button type="submit" class="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-slate-100 rounded-lg transition" title="Eliminar">
+                                                        <i class="fas fa-trash-alt text-xs"></i>
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         <?php endif; ?>
 
     </main>
@@ -2675,85 +2461,7 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
         </div>
     </div>
 
-    <!-- Modal Confirmar Marcar Todo el Filtro como OK (Custom HTML Tailwind Modal) -->
-    <div id="modalConfirmarFiltroOK" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4">
-        <div class="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 shadow-xl transform transition-all">
-            <div class="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mb-4 mx-auto border border-emerald-100">
-                <i class="fas fa-check-double text-xl"></i>
-            </div>
-            <h3 class="text-base font-bold text-slate-900 text-center mb-1">
-                ¿Marcar Todo el Filtro como OK?
-            </h3>
-            <p class="text-xs text-slate-500 text-center mb-4 leading-relaxed">
-                Estás por marcar como <strong class="text-emerald-700 font-bold">VALIDADOS OK</strong> a los <strong id="modalFiltroCantText" class="text-slate-900 font-bold text-sm">0</strong> usuarios de este filtro actual (en todas las páginas).
-            </p>
 
-            <div class="bg-slate-50 border border-slate-200/80 rounded-xl p-3 mb-5 text-[11px] text-slate-600 space-y-1.5">
-                <div class="flex items-center justify-between">
-                    <span class="text-slate-400">Categoría aplicada:</span>
-                    <span id="modalFiltroCatText" class="font-bold text-slate-800 font-mono">Todas</span>
-                </div>
-                <div class="flex items-center justify-between">
-                    <span class="text-slate-400">Estado actual:</span>
-                    <span id="modalFiltroEstadoText" class="font-bold text-slate-800 font-mono">Todos</span>
-                </div>
-                <div class="flex items-center justify-between">
-                    <span class="text-slate-400">Término de búsqueda:</span>
-                    <span id="modalFiltroQText" class="font-bold text-slate-800 font-mono">Ninguno</span>
-                </div>
-            </div>
-
-            <div class="grid grid-cols-2 gap-2.5">
-                <button type="button" onclick="cerrarModal('modalConfirmarFiltroOK')" class="w-full py-2.5 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition cursor-pointer">
-                    Cancelar
-                </button>
-                <button type="button" id="btnEjecutarFiltroOK" onclick="ejecutarMarcarTodoElFiltroComoOK()" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer">
-                    <i class="fas fa-check-circle"></i> Sí, Marcar Todos OK
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Modal Editar Nota / Observación de Relevamiento -->
-    <div id="modalObsRelev" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4">
-        <div class="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-6 shadow-xl">
-            <div class="flex items-center justify-between pb-3 border-b border-slate-200 mb-4">
-                <h3 class="text-sm font-bold text-slate-900 flex items-center">
-                    <i class="fas fa-clipboard-check text-indigo-600 mr-2"></i> Auditoría & Notas de Relevamiento
-                </h3>
-                <button type="button" onclick="cerrarModal('modalObsRelev')" class="text-slate-400 hover:text-slate-600 text-xl font-bold">&times;</button>
-            </div>
-            <p class="text-xs text-slate-500 mb-4">Usuario: <span id="modalObsUsername" class="text-slate-900 font-mono font-bold"></span></p>
-            
-            <form method="POST" id="formObsRelev">
-                <input type="hidden" name="action" value="guardar_obs_relevamiento">
-                <input type="hidden" name="user_id" id="modalObsUserId">
-                
-                <div class="mb-4">
-                    <label class="block text-xs font-semibold text-slate-700 mb-1.5">Estado del Relevamiento</label>
-                    <select name="estado" id="modalObsEstado" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
-                        <option value="OK">✅ Validado OK (Probado & Funcional)</option>
-                        <option value="OBSERVADO">⚠️ Con Observaciones (Requiere Ajuste)</option>
-                        <option value="PENDIENTE">⏳ Pendiente de Relevamiento</option>
-                        <option value="DESCARTADO">🚫 Descartado / No Aplica</option>
-                    </select>
-                </div>
-
-                <div class="mb-5">
-                    <label class="block text-xs font-semibold text-slate-700 mb-1.5">Observaciones / Notas Técnicas</label>
-                    <textarea name="obs" id="modalObsTexto" rows="3" placeholder="Ej: Redirección probada ok, faltaba asociar sucursal 40, credencial validada..." 
-                              class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"></textarea>
-                </div>
-
-                <div class="flex justify-end space-x-2 pt-2 border-t border-slate-200">
-                    <button type="button" onclick="cerrarModal('modalObsRelev')" class="px-4 py-2 text-xs font-medium text-slate-500 hover:text-slate-800 transition">Cancelar</button>
-                    <button type="button" onclick="guardarObsRelevAjax()" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition shadow-xs">
-                        Guardar Auditoría
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
 
     <!-- Modal Editar Permisos por Rol (Matriz N a N) -->
     <div id="modalPermisos" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4">
@@ -3522,6 +3230,236 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
         </div>
     </div>
 
+    <!-- ==================== MODAL: CREAR / EDITAR EQUIPO DE TRABAJO ==================== -->
+    <div id="modalEquipo" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4">
+        <div class="bg-white border border-slate-200 rounded-2xl max-w-4xl w-full p-6 shadow-xl max-h-[92vh] flex flex-col">
+            <!-- Header del Modal -->
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100 mb-4 shrink-0">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-sm shadow-2xs font-bold border border-blue-100">
+                        <i class="fas fa-people-roof"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-bold text-slate-900" id="modalEquipoTitulo">Nuevo Equipo de Trabajo</h3>
+                        <p class="text-xs text-slate-500">Definí el líder, gerente validador, ámbito y los integrantes del equipo.</p>
+                    </div>
+                </div>
+                <button type="button" onclick="cerrarModal('modalEquipo')" class="text-slate-400 hover:text-slate-600 text-lg">&times;</button>
+            </div>
+
+            <!-- Contenido scrollable -->
+            <form method="POST" id="formEquipo" class="overflow-y-auto pr-1 space-y-4 flex-1">
+                <input type="hidden" name="action" value="guardar_equipo">
+                <input type="hidden" name="equipo_id" id="formEquipoId" value="0">
+                <input type="hidden" name="lider_usuario_id" id="formEquipoLiderUserId" value="">
+                <input type="hidden" name="gerente_usuario_id" id="formEquipoGerenteUserId" value="">
+
+                <!-- Datos Principales -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div class="md:col-span-2">
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Nombre del Equipo *</label>
+                        <input type="text" name="nombre" id="formEquipoNombre" required placeholder="Ej: Administración General y Tesorería" 
+                               class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Ámbito / Flujo *</label>
+                        <select name="tipo_flujo" id="formEquipoTipoFlujo" 
+                                class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                            <option value="CENTRAL">CENTRAL (Sede / Oficinas / Plantas)</option>
+                            <option value="LOCALES">LOCALES (Retail / Sucursales)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Sector Principal *</label>
+                        <select name="sector_id" id="formEquipoSectorId" required onchange="filtrarSubsectoresEquipo(this.value)"
+                                class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                            <option value="">-- Seleccionar Sector --</option>
+                            <?php foreach($sectores as $s): ?>
+                                <option value="<?= $s['id'] ?>"><?= htmlspecialchars($s['nombre']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Subsector / Departamento (Opcional)</label>
+                        <select name="subsector_id" id="formEquipoSubsectorId"
+                                class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                            <option value="">-- Todos o Sin Subsector específico --</option>
+                            <?php foreach($subsectores as $sub): ?>
+                                <option value="<?= $sub['id'] ?>" data-sector="<?= $sub['sector_id'] ?>"><?= htmlspecialchars($sub['nombre']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Líder y Gerente -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-800 mb-1 flex items-center gap-1.5">
+                            <i class="fas fa-user-tie text-blue-600"></i> Líder / Jefe de Equipo (Carga grilla)
+                        </label>
+                        <select name="lider_legajo" id="formEquipoLiderLegajo" onchange="actualizarLiderEquipo(this)"
+                                class="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                            <option value="">-- Sin Líder asignado --</option>
+                            <?php foreach($usuariosParaEquipos as $u): ?>
+                                <option value="<?= $u['legajo'] ?>" data-userid="<?= $u['id'] ?>">
+                                    <?= htmlspecialchars($u['nombre_completo']) ?> (Leg. #<?= $u['legajo'] ?> - <?= htmlspecialchars($u['rol_nombre'] ?? $u['sector_nombre'] ?? '') ?>)
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <span class="text-[10px] text-slate-400 mt-0.5 block">Tiene permiso de armar la planificación de vacaciones de sus integrantes.</span>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-800 mb-1 flex items-center gap-1.5">
+                            <i class="fas fa-shield-halved text-purple-600"></i> Gerente Validador (Nivel Aprobador)
+                        </label>
+                        <select name="gerente_legajo" id="formEquipoGerenteLegajo" onchange="actualizarGerenteEquipo(this)"
+                                class="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                            <option value="">-- Sin Gerente asignado --</option>
+                            <?php foreach($usuariosParaEquipos as $u): ?>
+                                <option value="<?= $u['legajo'] ?>" data-userid="<?= $u['id'] ?>">
+                                    <?= htmlspecialchars($u['nombre_completo']) ?> (Leg. #<?= $u['legajo'] ?> - <?= htmlspecialchars($u['rol_nombre'] ?? $u['sector_nombre'] ?? '') ?>)
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <span class="text-[10px] text-slate-400 mt-0.5 block">Aprueba las vacaciones del equipo y de su jefe/líder.</span>
+                    </div>
+                </div>
+
+                <!-- Descripción y Estado -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-center">
+                    <div class="md:col-span-2">
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Descripción / Observaciones</label>
+                        <textarea name="descripcion" id="formEquipoDesc" rows="2" placeholder="Detalle funcional o áreas que abarca el equipo..."
+                                  class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"></textarea>
+                    </div>
+                    <div class="flex items-center pt-2">
+                        <label class="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 bg-slate-50 p-3 rounded-xl border border-slate-200 w-full">
+                            <input type="checkbox" name="activo" id="formEquipoActivo" value="1" checked class="rounded text-indigo-600 focus:ring-indigo-500">
+                            <span class="text-emerald-700 font-bold">Equipo Activo</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- SECCIÓN DE INTEGRANTES / COLABORADORES -->
+                <div class="pt-3 border-t border-slate-200">
+                    <div class="flex items-center justify-between mb-2">
+                        <div>
+                            <h4 class="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                                <i class="fas fa-users text-indigo-600"></i> Integrantes Asignados al Equipo
+                            </h4>
+                            <p class="text-[11px] text-slate-500">Agregue a los colaboradores que pertenecerán a la grilla y gestión de este equipo.</p>
+                        </div>
+                        <span class="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-100" id="contadorMiembrosForm">0 integrantes</span>
+                    </div>
+
+                    <!-- Agregar Colaborador Box -->
+                    <div class="bg-indigo-50/40 p-3 rounded-xl border border-indigo-100 mb-3 grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
+                        <div class="md:col-span-6">
+                            <label class="block text-[11px] font-bold text-slate-700 mb-1">Buscar y Seleccionar Colaborador</label>
+                            <select id="selectNuevoMiembro" class="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+                                <option value="">-- Seleccionar colaborador --</option>
+                                <?php foreach($usuariosParaEquipos as $u): ?>
+                                    <option value="<?= $u['legajo'] ?>" 
+                                            data-userid="<?= $u['id'] ?>" 
+                                            data-nombre="<?= htmlspecialchars($u['nombre_completo']) ?>"
+                                            data-rol="<?= htmlspecialchars($u['rol_nombre'] ?? 'Sin Rol') ?>"
+                                            data-sector="<?= htmlspecialchars($u['sector_nombre'] ?? '') ?>">
+                                        <?= htmlspecialchars($u['nombre_completo']) ?> (Leg. #<?= $u['legajo'] ?> - <?= htmlspecialchars($u['rol_nombre'] ?? '') ?>)
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="md:col-span-3">
+                            <label class="block text-[11px] font-bold text-slate-700 mb-1">Rol en Equipo</label>
+                            <select id="selectRolNuevoMiembro" class="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+                                <option value="MIEMBRO">Miembro / Colaborador</option>
+                                <option value="LIDER">Líder / Responsable</option>
+                                <option value="SUPLENTE">Suplente / Co-líder</option>
+                            </select>
+                        </div>
+                        <div class="md:col-span-3 flex items-center gap-2">
+                            <button type="button" onclick="agregarMiembroDesdeSelector()" class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer">
+                                <i class="fas fa-user-plus text-[11px]"></i> Agregar
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Tabla de Miembros Seleccionados -->
+                    <div class="border border-slate-200 rounded-xl overflow-hidden max-h-56 overflow-y-auto">
+                        <table class="w-full text-left text-xs border-collapse">
+                            <thead>
+                                <tr class="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-600 uppercase">
+                                    <th class="py-2 px-3">Legajo</th>
+                                    <th class="py-2 px-3">Colaborador</th>
+                                    <th class="py-2 px-3">Puesto / Rol</th>
+                                    <th class="py-2 px-3">Rol Equipo</th>
+                                    <th class="py-2 px-3 text-center">¿Crítico?</th>
+                                    <th class="py-2 px-3 text-right">Quitar</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbodyMiembrosEquipo" class="divide-y divide-slate-100">
+                                <tr id="filaSinMiembros">
+                                    <td colspan="6" class="text-center py-6 text-slate-400 text-xs italic">
+                                        No hay integrantes en este equipo todavía. Seleccioná arriba para agregarlos.
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="flex justify-end space-x-2 pt-4 border-t border-slate-100">
+                    <button type="button" onclick="cerrarModal('modalEquipo')" class="px-4 py-2 text-xs font-medium text-slate-500 hover:text-slate-800 transition">Cancelar</button>
+                    <button type="submit" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition shadow-xs flex items-center gap-1.5 cursor-pointer">
+                        <i class="fas fa-check"></i> <span id="btnTextoGuardarEquipo">Guardar Equipo</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL: VER MIEMBROS DE EQUIPO ==================== -->
+    <div id="modalMiembrosEquipo" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4">
+        <div class="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full p-6 shadow-xl max-h-[88vh] flex flex-col">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100 mb-3 shrink-0">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-sm shadow-2xs font-bold border border-indigo-100">
+                        <i class="fas fa-users"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-bold text-slate-900 flex items-center gap-2">
+                            Integrantes: <span id="verMiembrosNombreEquipo" class="text-indigo-600">Nombre Equipo</span>
+                        </h3>
+                        <p class="text-xs text-slate-500" id="verMiembrosDetalleEquipo">Sector · 0 miembros</p>
+                    </div>
+                </div>
+                <button type="button" onclick="cerrarModal('modalMiembrosEquipo')" class="text-slate-400 hover:text-slate-600 text-lg">&times;</button>
+            </div>
+
+            <!-- Lista de Miembros -->
+            <div class="overflow-y-auto flex-1 pr-1 space-y-2" id="verMiembrosListaContenedor">
+                <div class="py-8 text-center text-slate-400">
+                    <i class="fas fa-spinner fa-spin text-2xl text-indigo-500 mb-2 block"></i>
+                    Cargando integrantes...
+                </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="flex justify-between items-center pt-3 border-t border-slate-100 mt-3 shrink-0">
+                <button type="button" id="btnEditarEquipoDesdeVer" onclick="" class="px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-xl border border-indigo-200 transition flex items-center gap-1.5 cursor-pointer">
+                    <i class="fas fa-pen text-[10px]"></i> Editar Equipo
+                </button>
+                <button type="button" onclick="cerrarModal('modalMiembrosEquipo')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition">
+                    Cerrar
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast Notification Container -->
     <div id="toastContainer" class="fixed bottom-5 right-5 z-50 flex flex-col space-y-2 pointer-events-none"></div>
 
@@ -3628,20 +3566,6 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
             document.querySelectorAll('.input-current-query').forEach(inp => {
                 inp.value = queryActual;
             });
-
-            // Debounce inteligente para búsqueda en relevamiento
-            const inputQRel = document.getElementById('inputBusquedaRel');
-            const iconQRel = document.getElementById('searchIconRel');
-            if (inputQRel && iconQRel) {
-                let debounceRelTimeout = null;
-                inputQRel.addEventListener('input', () => {
-                    iconQRel.className = 'fas fa-circle-notch fa-spin absolute left-3.5 top-2.5 text-indigo-500 text-xs transition-all';
-                    clearTimeout(debounceRelTimeout);
-                    debounceRelTimeout = setTimeout(() => {
-                        iconQRel.className = 'fas fa-search absolute left-3.5 top-2.5 text-slate-400 text-xs transition-all';
-                    }, 400);
-                });
-            }
         });
 
         // ==================== TOAST NOTIFICATIONS ====================
@@ -3869,234 +3793,6 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
                 document.execCommand('copy');
                 showToast('¡Mensaje copiado!', 'success');
             });
-        }
-
-        // ==================== JS RELEVAMIENTO AJAX ====================
-        function cambiarEstadoRelevAjax(userId, estado, obs = '') {
-            const formData = new FormData();
-            formData.append('ajax', '1');
-            formData.append('action', 'actualizar_relevamiento');
-            formData.append('user_id', userId);
-            formData.append('estado', estado);
-            formData.append('obs', obs);
-
-            fetch(window.location.href, {
-                method: 'POST',
-                body: formData
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.ok) {
-                    actualizarFilaRelevamientoUI(userId, estado, obs);
-                    if (data.stats) {
-                        actualizarKPIsUI(data.stats);
-                    }
-                    showToast(`Usuario #${userId} marcado como ${estado}`, 'success');
-                } else {
-                    showToast('Error: ' + (data.error || 'No se pudo actualizar'), 'error');
-                }
-            })
-            .catch(err => {
-                showToast('Error de conexión con el servidor', 'error');
-            });
-        }
-
-        function actualizarFilaRelevamientoUI(userId, estado, obs) {
-            const btnGroup = document.getElementById('btn-group-estado-' + userId);
-            if (btnGroup) {
-                const isOk = (estado === 'OK');
-                const isObs = (estado === 'OBSERVADO');
-                const isPend = (estado === 'PENDIENTE');
-
-                btnGroup.innerHTML = `
-                    <button type="button" onclick="cambiarEstadoRelevAjax(${userId}, 'OK')" 
-                            title="Marcar como Probado y Funcional OK"
-                            class="px-2.5 py-1 rounded-lg text-[10px] font-bold transition ${isOk ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:text-emerald-700'}">
-                        <i class="fas fa-check mr-1"></i> OK
-                    </button>
-                    <button type="button" onclick="abrirModalObsRelev(${userId}, '', 'OBSERVADO', '${obs.replace(/'/g, "\\'")}')" 
-                            title="Marcar con Observación o Detalle a Ajustar"
-                            class="px-2.5 py-1 rounded-lg text-[10px] font-bold transition ${isObs ? 'bg-amber-500 text-white shadow-xs' : 'text-slate-600 hover:text-amber-700'}">
-                        <i class="fas fa-exclamation-triangle mr-1"></i> Obs
-                    </button>
-                    <button type="button" onclick="cambiarEstadoRelevAjax(${userId}, 'PENDIENTE')" 
-                            title="Volver a Pendiente"
-                            class="px-2 py-1 rounded-lg text-[10px] font-bold transition ${isPend ? 'bg-slate-300 text-slate-800' : 'text-slate-400 hover:text-slate-700'}">
-                        ⏳
-                    </button>
-                `;
-            }
-
-            if (obs !== '') {
-                const obsDiv = document.getElementById('obs-text-' + userId);
-                if (obsDiv) {
-                    obsDiv.textContent = obs;
-                    obsDiv.className = 'text-[11px] font-medium text-slate-700';
-                }
-            }
-        }
-
-        function actualizarKPIsUI(stats) {
-            const okEl = document.getElementById('kpiOkCount');
-            const obsEl = document.getElementById('kpiObsCount');
-            const pendEl = document.getElementById('kpiPendCount');
-            const auditEl = document.getElementById('kpiTotalAuditados');
-            const pctBadge = document.getElementById('kpiPorcentajeBadge');
-            const bar = document.getElementById('kpiProgressBar');
-            const headerBadge = document.getElementById('badgeHeaderRelev');
-
-            if (okEl) okEl.textContent = stats.ok;
-            if (obsEl) obsEl.textContent = stats.observado;
-            if (pendEl) pendEl.textContent = stats.pendiente;
-            
-            const auditados = stats.ok + stats.observado + stats.descartado;
-            if (auditEl) auditEl.innerHTML = `${auditados} <span class="text-sm font-semibold text-slate-400">/ ${stats.total}</span>`;
-            
-            const pct = stats.total > 0 ? ((auditados / stats.total) * 100).toFixed(1) : 0;
-            if (pctBadge) pctBadge.textContent = pct + '%';
-            if (bar) bar.style.width = pct + '%';
-            if (headerBadge) headerBadge.textContent = `${stats.ok}/${stats.total}`;
-        }
-
-        function abrirModalObsRelev(userId, username, estadoActual, obsActual) {
-            document.getElementById('modalObsUserId').value = userId;
-            if (username) {
-                document.getElementById('modalObsUsername').textContent = '@' + username;
-            }
-            document.getElementById('modalObsEstado').value = estadoActual || 'OK';
-            document.getElementById('modalObsTexto').value = obsActual || '';
-            abrirModal('modalObsRelev');
-        }
-
-        function guardarObsRelevAjax() {
-            const userId = document.getElementById('modalObsUserId').value;
-            const estado = document.getElementById('modalObsEstado').value;
-            const obs = document.getElementById('modalObsTexto').value;
-
-            cambiarEstadoRelevAjax(userId, estado, obs);
-            cerrarModal('modalObsRelev');
-        }
-
-        function toggleCheckMaster(master) {
-            const checks = document.querySelectorAll('.check-relev-item');
-            checks.forEach(c => c.checked = master.checked);
-            
-            const banner = document.getElementById('bannerSeleccionTotal');
-            if (banner) {
-                if (master.checked && checks.length > 0) {
-                    banner.classList.remove('hidden');
-                } else {
-                    banner.classList.add('hidden');
-                }
-            }
-        }
-
-        function actualizarEstadoMasterCheck() {
-            const checks = document.querySelectorAll('.check-relev-item');
-            const checked = document.querySelectorAll('.check-relev-item:checked');
-            const master = document.getElementById('checkMasterRelev');
-            const banner = document.getElementById('bannerSeleccionTotal');
-            
-            if (master) master.checked = (checks.length > 0 && checks.length === checked.length);
-            if (banner) {
-                if (checked.length === checks.length && checks.length > 0) {
-                    banner.classList.remove('hidden');
-                } else {
-                    banner.classList.add('hidden');
-                }
-            }
-        }
-
-        // ==================== MODAL CONFIRMAR FILTRO COMPLETO (SIN POPUPS NATIVOS) ====================
-        function abrirModalConfirmarFiltroOK(totalRegistros) {
-            const q = document.getElementById('inputBusquedaRel')?.value || '';
-            const estado = document.getElementById('selectEstadoRel')?.value || '';
-            const cat = document.getElementById('selectCatRel')?.value || '';
-
-            document.getElementById('modalFiltroCantText').textContent = totalRegistros;
-            document.getElementById('modalFiltroCatText').textContent = cat || 'Todas las Categorías';
-            document.getElementById('modalFiltroEstadoText').textContent = estado || 'Todos los Estados';
-            document.getElementById('modalFiltroQText').textContent = q || 'Ninguno';
-
-            abrirModal('modalConfirmarFiltroOK');
-        }
-
-        function ejecutarMarcarTodoElFiltroComoOK() {
-            const btn = document.getElementById('btnEjecutarFiltroOK');
-            if (btn) {
-                btn.disabled = true;
-                btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Procesando...';
-            }
-
-            const q = document.getElementById('inputBusquedaRel')?.value || '';
-            const estado = document.getElementById('selectEstadoRel')?.value || '';
-            const cat = document.getElementById('selectCatRel')?.value || '';
-
-            const formData = new FormData();
-            formData.append('ajax', '1');
-            formData.append('action', 'marcar_filtro_relevamiento');
-            formData.append('q_rel', q);
-            formData.append('estado_rel', estado);
-            formData.append('cat_rel', cat);
-            formData.append('nuevo_estado', 'OK');
-
-            fetch(window.location.href, {
-                method: 'POST',
-                body: formData
-            })
-            .then(res => res.json())
-            .then(data => {
-                cerrarModal('modalConfirmarFiltroOK');
-                if (data.ok) {
-                    showToast(`¡Se marcaron ${data.afectados} usuarios como OK con éxito!`, 'success');
-                    if (data.stats) actualizarKPIsUI(data.stats);
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 800);
-                } else {
-                    showToast('Error: ' + (data.error || 'No se pudo procesar'), 'error');
-                    if (btn) {
-                        btn.disabled = false;
-                        btn.innerHTML = '<i class="fas fa-check-circle"></i> Sí, Marcar Todos OK';
-                    }
-                }
-            })
-            .catch(() => {
-                cerrarModal('modalConfirmarFiltroOK');
-                showToast('Error de conexión con el servidor', 'error');
-                if (btn) {
-                    btn.disabled = false;
-                    btn.innerHTML = '<i class="fas fa-check-circle"></i> Sí, Marcar Todos OK';
-                }
-            });
-        }
-
-        function exportarChecklistCSV() {
-            const rows = document.querySelectorAll('#tablaCuerpoRelevamiento tr');
-            if (!rows.length) return;
-            
-            let csv = "ID,Usuario,Categoria,Nombre,Destino,Estado_Relevamiento,Observaciones\n";
-            rows.forEach(r => {
-                const cells = r.querySelectorAll('td');
-                if (cells.length >= 7) {
-                    const id = cells[0].querySelector('input')?.value || '';
-                    const user = cells[1].querySelector('span.font-bold')?.textContent.replace('@', '').trim() || '';
-                    const cat = cells[2].querySelector('span')?.textContent.trim() || '';
-                    const nombre = cells[3].textContent.trim().replace(/"/g, '""');
-                    const destino = cells[4].textContent.trim().replace(/"/g, '""');
-                    const estado = cells[5].textContent.includes('OK') ? 'OK' : (cells[5].textContent.includes('Obs') ? 'OBSERVADO' : 'PENDIENTE');
-                    const obs = cells[6].querySelector('div')?.textContent.trim().replace(/"/g, '""') || '';
-                    csv += `"${id}","${user}","${cat}","${nombre}","${destino}","${estado}","${obs}"\n`;
-                }
-            });
-
-            const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement("a");
-            link.href = URL.createObjectURL(blob);
-            link.setAttribute("download", "Relevamiento_Usuarios_XL_" + new Date().toISOString().slice(0,10) + ".csv");
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
         }
 
         // ==================== MODAL PERMISOS & ROLES ====================
@@ -5722,7 +5418,351 @@ $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
                         showToast(res.error || 'Error al eliminar solapa', 'error');
                     }
                 })
-                .catch(() => showToast('Error de conexión', 'error'));
+                .catch(() => {
+                    showToast('Error de conexión al eliminar solapa', 'error');
+                });
+        }
+
+        // ==================== JS GESTIÓN DE EQUIPOS DE TRABAJO ====================
+        let currentEquipoVerId = null;
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function filtrarEquiposEnVivo(val) {
+            const q = val.toLowerCase().trim();
+            const items = document.querySelectorAll('.item-equipo');
+            let visibles = 0;
+            items.forEach(el => {
+                const search = el.getAttribute('data-search') || '';
+                const match = (!q || search.includes(q));
+                el.classList.toggle('hidden', !match);
+                if (match) visibles++;
+            });
+        }
+
+        function filtrarSubsectoresEquipo(sectorId, seleccionado = '') {
+            const selSub = document.getElementById('formEquipoSubsectorId');
+            if (!selSub) return;
+            const options = selSub.querySelectorAll('option');
+            options.forEach(opt => {
+                if (!opt.value) {
+                    opt.hidden = false;
+                    return;
+                }
+                const sec = opt.getAttribute('data-sector');
+                const match = (!sectorId || sec === String(sectorId));
+                opt.hidden = !match;
+            });
+            if (seleccionado) {
+                selSub.value = seleccionado;
+            } else {
+                selSub.value = '';
+            }
+        }
+
+        function actualizarLiderEquipo(sel) {
+            const opt = sel.options[sel.selectedIndex];
+            const userId = opt ? (opt.getAttribute('data-userid') || '') : '';
+            document.getElementById('formEquipoLiderUserId').value = userId;
+        }
+
+        function actualizarGerenteEquipo(sel) {
+            const opt = sel.options[sel.selectedIndex];
+            const userId = opt ? (opt.getAttribute('data-userid') || '') : '';
+            document.getElementById('formEquipoGerenteUserId').value = userId;
+        }
+
+        function abrirModalCrearEquipo() {
+            document.getElementById('modalEquipoTitulo').textContent = 'Nuevo Equipo de Trabajo';
+            document.getElementById('btnTextoGuardarEquipo').textContent = 'Crear Equipo';
+            document.getElementById('formEquipoId').value = '0';
+            document.getElementById('formEquipoNombre').value = '';
+            document.getElementById('formEquipoSectorId').value = '';
+            filtrarSubsectoresEquipo('', '');
+            document.getElementById('formEquipoTipoFlujo').value = 'CENTRAL';
+            document.getElementById('formEquipoLiderLegajo').value = '';
+            document.getElementById('formEquipoLiderUserId').value = '';
+            document.getElementById('formEquipoGerenteLegajo').value = '';
+            document.getElementById('formEquipoGerenteUserId').value = '';
+            document.getElementById('formEquipoDesc').value = '';
+            document.getElementById('formEquipoActivo').checked = true;
+
+            const tbody = document.getElementById('tbodyMiembrosEquipo');
+            tbody.innerHTML = `
+                <tr id="filaSinMiembros">
+                    <td colspan="6" class="text-center py-6 text-slate-400 text-xs italic">
+                        No hay integrantes en este equipo todavía. Seleccioná arriba para agregarlos.
+                    </td>
+                </tr>
+            `;
+            actualizarContadorMiembrosForm();
+            abrirModal('modalEquipo');
+        }
+
+        function editarEquipo(equipoId) {
+            iniciarProgreso();
+            fetch('?ajax=1&action=obtener_equipo_ajax&equipo_id=' + equipoId)
+                .then(r => r.json())
+                .then(res => {
+                    finalizarProgreso();
+                    if (res.ok && res.equipo) {
+                        const eq = res.equipo;
+                        document.getElementById('modalEquipoTitulo').textContent = 'Editar Equipo: ' + eq.nombre;
+                        document.getElementById('btnTextoGuardarEquipo').textContent = 'Guardar Cambios';
+                        document.getElementById('formEquipoId').value = eq.id;
+                        document.getElementById('formEquipoNombre').value = eq.nombre;
+                        document.getElementById('formEquipoSectorId').value = eq.sector_id;
+                        filtrarSubsectoresEquipo(eq.sector_id, eq.subsector_id || '');
+                        document.getElementById('formEquipoTipoFlujo').value = eq.tipo_flujo || 'CENTRAL';
+                        
+                        document.getElementById('formEquipoLiderLegajo').value = eq.lider_legajo || '';
+                        document.getElementById('formEquipoLiderUserId').value = eq.lider_usuario_id || '';
+                        
+                        document.getElementById('formEquipoGerenteLegajo').value = eq.gerente_legajo || '';
+                        document.getElementById('formEquipoGerenteUserId').value = eq.gerente_usuario_id || '';
+                        
+                        document.getElementById('formEquipoDesc').value = eq.descripcion || '';
+                        document.getElementById('formEquipoActivo').checked = (eq.activo == 1);
+
+                        // Miembros
+                        const tbody = document.getElementById('tbodyMiembrosEquipo');
+                        tbody.innerHTML = '';
+                        if (eq.miembros && eq.miembros.length > 0) {
+                            eq.miembros.forEach(m => {
+                                agregarFilaMiembroTabla(m.legajo, m.usuario_id, m.nombre_completo || m.username, m.rol_nombre || m.subsector_nombre || 'Colaborador', m.rol_en_equipo || 'MIEMBRO', m.es_critico == 1);
+                            });
+                        } else {
+                            tbody.innerHTML = `
+                                <tr id="filaSinMiembros">
+                                    <td colspan="6" class="text-center py-6 text-slate-400 text-xs italic">
+                                        No hay integrantes en este equipo todavía. Seleccioná arriba para agregarlos.
+                                    </td>
+                                </tr>
+                            `;
+                        }
+                        actualizarContadorMiembrosForm();
+                        abrirModal('modalEquipo');
+                    } else {
+                        showToast(res.error || 'Error al obtener equipo', 'error');
+                    }
+                })
+                .catch(() => {
+                    finalizarProgreso();
+                    showToast('Error de conexión al cargar equipo', 'error');
+                });
+        }
+
+        function agregarMiembroDesdeSelector() {
+            const sel = document.getElementById('selectNuevoMiembro');
+            const legajo = sel.value;
+            if (!legajo) {
+                showToast('Seleccioná un colaborador para agregar al equipo', 'error');
+                return;
+            }
+
+            // Validar que no esté ya agregado
+            const existentes = document.querySelectorAll(`input[name="miembros_legajos[]"][value="${legajo}"]`);
+            if (existentes.length > 0) {
+                showToast('Este colaborador ya forma parte del equipo', 'error');
+                return;
+            }
+
+            const opt = sel.options[sel.selectedIndex];
+            const userId = opt.getAttribute('data-userid') || '';
+            const nombre = opt.getAttribute('data-nombre') || opt.text;
+            const rol = opt.getAttribute('data-rol') || opt.getAttribute('data-sector') || 'Colaborador';
+            const rolEnEquipo = document.getElementById('selectRolNuevoMiembro').value;
+
+            // Remover fila sin miembros si está presente
+            const filaVacia = document.getElementById('filaSinMiembros');
+            if (filaVacia) filaVacia.remove();
+
+            agregarFilaMiembroTabla(legajo, userId, nombre, rol, rolEnEquipo, false);
+            actualizarContadorMiembrosForm();
+            sel.value = '';
+            showToast('Colaborador agregado a la lista del equipo');
+        }
+
+        function agregarFilaMiembroTabla(legajo, userId, nombre, puestoRol, rolEnEquipo, esCritico) {
+            const tbody = document.getElementById('tbodyMiembrosEquipo');
+            const filaVacia = document.getElementById('filaSinMiembros');
+            if (filaVacia) filaVacia.remove();
+
+            const tr = document.createElement('tr');
+            tr.className = 'hover:bg-slate-50 transition border-b border-slate-100 fila-miembro-form';
+            tr.innerHTML = `
+                <td class="py-2.5 px-3 font-mono font-bold text-slate-700">
+                    #${legajo}
+                    <input type="hidden" name="miembros_legajos[]" value="${legajo}">
+                    <input type="hidden" name="miembros_user_ids[]" value="${userId}">
+                </td>
+                <td class="py-2.5 px-3">
+                    <div class="font-semibold text-slate-900">${escapeHtml(nombre)}</div>
+                </td>
+                <td class="py-2.5 px-3 text-slate-500 text-[11px]">
+                    ${escapeHtml(puestoRol)}
+                </td>
+                <td class="py-2.5 px-3">
+                    <select name="miembros_roles[]" class="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 font-medium">
+                        <option value="MIEMBRO" ${rolEnEquipo === 'MIEMBRO' ? 'selected' : ''}>Miembro</option>
+                        <option value="LIDER" ${rolEnEquipo === 'LIDER' ? 'selected' : ''}>Líder</option>
+                        <option value="SUPLENTE" ${rolEnEquipo === 'SUPLENTE' ? 'selected' : ''}>Suplente</option>
+                    </select>
+                </td>
+                <td class="py-2.5 px-3 text-center">
+                    <label class="inline-flex items-center cursor-pointer">
+                        <input type="checkbox" onchange="toggleCriticoMiembro(this)" ${esCritico ? 'checked' : ''} class="rounded text-amber-500 focus:ring-amber-400">
+                        <input type="hidden" name="miembros_criticos[]" value="${esCritico ? 1 : 0}">
+                    </label>
+                </td>
+                <td class="py-2.5 px-3 text-right">
+                    <button type="button" onclick="eliminarFilaMiembro(this)" class="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition" title="Quitar del equipo">
+                        <i class="fas fa-times text-xs"></i>
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        }
+
+        function toggleCriticoMiembro(chk) {
+            const hidden = chk.parentElement.querySelector('input[type="hidden"]');
+            if (hidden) {
+                hidden.value = chk.checked ? 1 : 0;
+            }
+        }
+
+        function eliminarFilaMiembro(btn) {
+            const tr = btn.closest('tr');
+            if (tr) {
+                tr.remove();
+                const tbody = document.getElementById('tbodyMiembrosEquipo');
+                if (tbody.querySelectorAll('.fila-miembro-form').length === 0) {
+                    tbody.innerHTML = `
+                        <tr id="filaSinMiembros">
+                            <td colspan="6" class="text-center py-6 text-slate-400 text-xs italic">
+                                No hay integrantes en este equipo todavía. Seleccioná arriba para agregarlos.
+                            </td>
+                        </tr>
+                    `;
+                }
+                actualizarContadorMiembrosForm();
+            }
+        }
+
+        function actualizarContadorMiembrosForm() {
+            const cant = document.querySelectorAll('.fila-miembro-form').length;
+            const badge = document.getElementById('contadorMiembrosForm');
+            if (badge) {
+                badge.textContent = `${cant} integrante${cant === 1 ? '' : 's'}`;
+            }
+        }
+
+        function verMiembrosEquipo(id, nombre) {
+            currentEquipoVerId = id;
+            document.getElementById('verMiembrosNombreEquipo').textContent = nombre;
+            document.getElementById('btnEditarEquipoDesdeVer').onclick = () => {
+                cerrarModal('modalMiembrosEquipo');
+                editarEquipo(id);
+            };
+
+            const cont = document.getElementById('verMiembrosListaContenedor');
+            cont.innerHTML = `
+                <div class="py-12 text-center text-slate-400">
+                    <i class="fas fa-spinner fa-spin text-2xl text-indigo-500 mb-2 block"></i>
+                    Cargando integrantes...
+                </div>
+            `;
+            abrirModal('modalMiembrosEquipo');
+
+            fetch('?ajax=1&action=obtener_equipo_ajax&equipo_id=' + id)
+                .then(r => r.json())
+                .then(res => {
+                    if (res.ok && res.equipo) {
+                        const eq = res.equipo;
+                        document.getElementById('verMiembrosDetalleEquipo').textContent = `${eq.sector_nombre || 'Sector'} · ${eq.miembros ? eq.miembros.length : 0} integrantes · Flujo ${eq.tipo_flujo || 'CENTRAL'}`;
+                        
+                        let html = '';
+                        // Card Líder y Gerente
+                        html += `
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                                <div class="p-3 bg-blue-50/60 rounded-xl border border-blue-200/70 flex items-center gap-3">
+                                    <div class="w-9 h-9 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-sm shadow-xs">
+                                        <i class="fas fa-user-tie"></i>
+                                    </div>
+                                    <div class="min-w-0 flex-1">
+                                        <div class="text-[10px] font-bold text-blue-700 uppercase tracking-wider">Líder / Jefe de Equipo</div>
+                                        <div class="font-bold text-slate-900 text-xs truncate">${escapeHtml(eq.lider_nombre || 'Sin Líder Asignado')}</div>
+                                        <div class="text-[10px] text-slate-500">${eq.lider_legajo ? 'Legajo #' + eq.lider_legajo : ''}</div>
+                                    </div>
+                                </div>
+                                <div class="p-3 bg-purple-50/60 rounded-xl border border-purple-200/70 flex items-center gap-3">
+                                    <div class="w-9 h-9 rounded-lg bg-purple-600 text-white flex items-center justify-center font-bold text-sm shadow-xs">
+                                        <i class="fas fa-shield-halved"></i>
+                                    </div>
+                                    <div class="min-w-0 flex-1">
+                                        <div class="text-[10px] font-bold text-purple-700 uppercase tracking-wider">Gerente Validador</div>
+                                        <div class="font-bold text-slate-900 text-xs truncate">${escapeHtml(eq.gerente_nombre || 'Sin Gerente Asignado')}</div>
+                                        <div class="text-[10px] text-slate-500">${eq.gerente_legajo ? 'Legajo #' + eq.gerente_legajo : ''}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+
+                        // Lista de miembros
+                        if (eq.miembros && eq.miembros.length > 0) {
+                            html += '<div class="space-y-2">';
+                            eq.miembros.forEach(m => {
+                                const esLider = (m.rol_en_equipo === 'LIDER');
+                                const esCrit = (m.es_critico == 1);
+                                html += `
+                                    <div class="flex items-center justify-between p-3 rounded-xl border ${esLider ? 'bg-indigo-50/40 border-indigo-200' : 'bg-white border-slate-200'} hover:border-slate-300 transition">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-8 h-8 rounded-full ${esLider ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'} flex items-center justify-center text-xs font-bold shrink-0">
+                                                ${esLider ? '<i class="fas fa-star"></i>' : (m.nombre_completo ? m.nombre_completo.charAt(0) : '#')}
+                                            </div>
+                                            <div>
+                                                <div class="flex items-center gap-2">
+                                                    <span class="font-bold text-slate-900 text-xs">${escapeHtml(m.nombre_completo || m.username)}</span>
+                                                    <span class="font-mono text-[10px] bg-slate-100 text-slate-700 font-semibold px-1.5 py-0.2 rounded border">#${m.legajo}</span>
+                                                    ${esLider ? '<span class="text-[10px] bg-indigo-100 text-indigo-700 font-bold px-2 py-0.2 rounded-full border border-indigo-200">LÍDER</span>' : ''}
+                                                    ${esCrit ? '<span class="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.2 rounded-full border border-amber-200" title="Puesto Crítico / Espejo"><i class="fas fa-lock text-[9px] mr-1"></i>Crítico</span>' : ''}
+                                                </div>
+                                                <div class="text-[11px] text-slate-500 mt-0.5">
+                                                    ${escapeHtml(m.rol_nombre || m.subsector_nombre || 'Colaborador')} ${m.email ? '· ' + escapeHtml(m.email) : ''}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="text-[11px] font-semibold text-slate-600">
+                                            Rol: <span class="text-indigo-600 font-bold">${escapeHtml(m.rol_en_equipo || 'MIEMBRO')}</span>
+                                        </div>
+                                    </div>
+                                `;
+                            });
+                            html += '</div>';
+                        } else {
+                            html += `
+                                <div class="text-center py-8 text-slate-400 text-xs">
+                                    <i class="fas fa-users-slash text-2xl text-slate-300 mb-2 block"></i>
+                                    Este equipo no tiene integrantes asignados aún.
+                                </div>
+                            `;
+                        }
+                        cont.innerHTML = html;
+                    } else {
+                        cont.innerHTML = `<div class="p-4 text-center text-rose-500 text-xs">${res.error || 'Error al cargar miembros'}</div>`;
+                    }
+                })
+                .catch(() => {
+                    cont.innerHTML = `<div class="p-4 text-center text-rose-500 text-xs">Error de conexión al cargar miembros</div>`;
+                });
         }
     </script>
 </body>
