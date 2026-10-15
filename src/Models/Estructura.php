@@ -868,6 +868,15 @@ class Estructura {
         return $res;
     }
 
+    public function contarEquipos() {
+        $sql = "SELECT COUNT(*) as total FROM FP_EQUIPOS WHERE activo = 1";
+        $stmt = sqlsrv_query($this->db, $sql);
+        if ($stmt && ($r = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC))) {
+            return (int)$r['total'];
+        }
+        return 0;
+    }
+
     public function obtenerEquipo($id) {
         $sql = "SELECT e.*, s.nombre as sector_nombre, sub.nombre as subsector_nombre,
                        COALESCE(ul.nombre_completo, ul.username) as lider_nombre,

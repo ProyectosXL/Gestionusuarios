@@ -799,6 +799,7 @@ $totalPersonales = $totalesCat['PERSONAL'] ?? 0;
 $totalLocales = $totalesCat['LOCAL'] ?? 0;
 $totalMayoristas = $totalesCat['MAYORISTA'] ?? 0;
 $totalGrupos = $totalesCat['GRUPO'] ?? 0;
+$totalUsuariosGeneral = $totalPersonales + $totalLocales + $totalMayoristas + $totalGrupos;
 
 // Carga perezosa según pestaña activa
 if ($tab === 'usuarios' || empty($tab)) {
@@ -806,7 +807,7 @@ if ($tab === 'usuarios' || empty($tab)) {
     $usuarios = $usuarioModel->listar($busqueda, $tipo, $sectorFiltro, $categoriaFiltro, $rolFiltro, $porPagina, $offset, $activoFiltro);
     $totalPaginas = max(1, ceil($totalUsuarios / $porPagina));
 } else {
-    $totalUsuarios = 0;
+    $totalUsuarios = $totalUsuariosGeneral;
     $usuarios = [];
     $totalPaginas = 1;
 }
@@ -825,7 +826,8 @@ $matrizEstructuraHub = ($tab === 'hub_matriz') ? $estructuraModel->obtenerMatriz
 // Mapa de permisos por rol en 1 sola consulta SQL
 $mapaPermisosPorRol = $estructuraModel->obtenerMapaPermisosTodosLosRoles();
 
-// Lista de Equipos de Trabajo
+// Lista y conteo de Equipos de Trabajo
+$cantEquiposTotal = $estructuraModel->contarEquipos();
 $equiposTotal = ($tab === 'equipos') ? $estructuraModel->listarEquipos() : [];
 $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosParaEquipo() : [];
 ?>
@@ -924,23 +926,23 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                 <a href="?tab=usuarios" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition <?= $tab === 'usuarios' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900' ?>">
                     <i class="fas fa-users mr-1.5"></i> Usuarios (<?= number_format($totalUsuarios) ?>)
                 </a>
-                <a href="?tab=hub_matriz" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition <?= $tab === 'hub_matriz' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900' ?>">
-                    <i class="fas fa-shapes mr-1.5 text-indigo-600"></i> Matriz Hub & Accesos
-                    <span class="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-100 text-indigo-800 font-bold">
-                        <?= count($modulosHub) ?> apps
-                    </span>
-                </a>
                 <a href="?tab=sectores" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition <?= $tab === 'sectores' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900' ?>">
                     <i class="fas fa-sitemap mr-1.5"></i> Sectores (<?= count($sectores) ?>)
                 </a>
                 <a href="?tab=roles" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition <?= $tab === 'roles' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900' ?>">
                     <i class="fas fa-user-shield mr-1.5"></i> Roles (<?= count($roles) ?>)
                 </a>
+                <a href="?tab=hub_matriz" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition <?= $tab === 'hub_matriz' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900' ?>">
+                    <i class="fas fa-shapes mr-1.5 text-indigo-600"></i> Matriz Hub & Accesos
+                    <span class="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-100 text-indigo-800 font-bold">
+                        <?= count($modulosHub) ?> apps
+                    </span>
+                </a>
                 <a href="?tab=modulos" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition <?= $tab === 'modulos' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900' ?>">
                     <i class="fas fa-cubes mr-1.5 text-indigo-600"></i> Módulos & Apps (<?= count($modulosTodos) ?>)
                 </a>
                 <a href="?tab=equipos" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition <?= $tab === 'equipos' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900' ?>">
-                    <i class="fas fa-people-roof mr-1.5 text-blue-600"></i> Equipos de Trabajo (<?= count($equiposTotal ?? []) ?>)
+                    <i class="fas fa-people-roof mr-1.5 text-blue-600"></i> Equipos de Trabajo (<?= $cantEquiposTotal ?>)
                 </a>
             </div>
         </div>
@@ -1809,18 +1811,6 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                             <input type="text" id="buscadorMatrizHub" oninput="filtrarMatrizHubEnVivo(this.value)" placeholder="Buscar por rol, sector, app..." 
                                    class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
                         </div>
-
-                        <!-- Botón Copiar Accesos -->
-                        <button type="button" onclick="abrirModalCopiarPermisosHub()" 
-                                class="px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-xl border border-indigo-200 transition flex items-center gap-1.5 shadow-2xs">
-                            <i class="fas fa-copy"></i> Copiar Accesos entre Roles
-                        </button>
-
-                        <!-- Botón Administrar / Nuevo Módulo -->
-                        <a href="?tab=modulos" 
-                           class="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition flex items-center gap-1.5 shadow-xs">
-                            <i class="fas fa-cubes"></i> Administrar Módulos & Apps
-                        </a>
 
                         <!-- Expandir / Colapsar todos -->
                         <button type="button" onclick="toggleTodosSectoresHub()" id="btnToggleTodosSectores" 
