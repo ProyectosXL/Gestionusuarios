@@ -565,6 +565,7 @@ class Estructura {
 
             ['config.ver', 'Ver Configuración NODO', '[Configuración NODO] Consulta de parámetros y tablas maestras'],
             ['config.editar', 'Gestión de Motivos y Reglas', '[Configuración NODO] Alta y edición de motivos estandarizados y reglas de negocio'],
+            ['config.vacaciones_ver', 'Políticas de Vacaciones y Cobertura (RRHH)', '[Configuración NODO] Configuración de solapamientos, puestos espejo y fechas críticas por equipo'],
 
             ['hub.app.nodo', 'Acceso a NODO en Hub', '[Hub] Plataforma centralizada de gestión de capital humano, control de tiempo, licencias y asistencias.']
         ];

@@ -731,12 +731,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($legInt > 0) {
                     $uId = !empty($_POST['miembros_user_ids'][$idx]) ? (int)$_POST['miembros_user_ids'][$idx] : null;
                     $rolEq = trim($_POST['miembros_roles'][$idx] ?? 'MIEMBRO');
-                    $esCrit = !empty($_POST['miembros_criticos'][$idx]) ? 1 : 0;
                     $miembros[] = [
                         'legajo' => $legInt,
                         'usuario_id' => $uId,
                         'rol_en_equipo' => $rolEq,
-                        'es_critico' => $esCrit,
                     ];
                 }
             }
@@ -3387,7 +3385,6 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                                     <th class="py-2 px-3">Colaborador</th>
                                     <th class="py-2 px-3">Puesto / Rol</th>
                                     <th class="py-2 px-3">Rol Equipo</th>
-                                    <th class="py-2 px-3 text-center">¿Crítico?</th>
                                     <th class="py-2 px-3 text-right">Quitar</th>
                                 </tr>
                             </thead>
@@ -5527,12 +5524,12 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                         tbody.innerHTML = '';
                         if (eq.miembros && eq.miembros.length > 0) {
                             eq.miembros.forEach(m => {
-                                agregarFilaMiembroTabla(m.legajo, m.usuario_id, m.nombre_completo || m.username, m.rol_nombre || m.subsector_nombre || 'Colaborador', m.rol_en_equipo || 'MIEMBRO', m.es_critico == 1);
+                                agregarFilaMiembroTabla(m.legajo, m.usuario_id, m.nombre_completo || m.username, m.rol_nombre || m.subsector_nombre || 'Colaborador', m.rol_en_equipo || 'MIEMBRO');
                             });
                         } else {
                             tbody.innerHTML = `
                                 <tr id="filaSinMiembros">
-                                    <td colspan="6" class="text-center py-6 text-slate-400 text-xs italic">
+                                    <td colspan="5" class="text-center py-6 text-slate-400 text-xs italic">
                                         No hay integrantes en este equipo todavía. Seleccioná arriba para agregarlos.
                                     </td>
                                 </tr>
@@ -5581,7 +5578,7 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
             showToast('Colaborador agregado a la lista del equipo');
         }
 
-        function agregarFilaMiembroTabla(legajo, userId, nombre, puestoRol, rolEnEquipo, esCritico) {
+        function agregarFilaMiembroTabla(legajo, userId, nombre, puestoRol, rolEnEquipo) {
             const tbody = document.getElementById('tbodyMiembrosEquipo');
             const filaVacia = document.getElementById('filaSinMiembros');
             if (filaVacia) filaVacia.remove();
@@ -5606,12 +5603,6 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                         <option value="LIDER" ${rolEnEquipo === 'LIDER' ? 'selected' : ''}>Líder</option>
                         <option value="SUPLENTE" ${rolEnEquipo === 'SUPLENTE' ? 'selected' : ''}>Suplente</option>
                     </select>
-                </td>
-                <td class="py-2.5 px-3 text-center">
-                    <label class="inline-flex items-center cursor-pointer">
-                        <input type="checkbox" onchange="toggleCriticoMiembro(this)" ${esCritico ? 'checked' : ''} class="rounded text-amber-500 focus:ring-amber-400">
-                        <input type="hidden" name="miembros_criticos[]" value="${esCritico ? 1 : 0}">
-                    </label>
                 </td>
                 <td class="py-2.5 px-3 text-right">
                     <button type="button" onclick="eliminarFilaMiembro(this)" class="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition" title="Quitar del equipo">
@@ -5711,7 +5702,6 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                             html += '<div class="space-y-2">';
                             eq.miembros.forEach(m => {
                                 const esLider = (m.rol_en_equipo === 'LIDER');
-                                const esCrit = (m.es_critico == 1);
                                 html += `
                                     <div class="flex items-center justify-between p-3 rounded-xl border ${esLider ? 'bg-indigo-50/40 border-indigo-200' : 'bg-white border-slate-200'} hover:border-slate-300 transition">
                                         <div class="flex items-center gap-3">
@@ -5723,7 +5713,6 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                                                     <span class="font-bold text-slate-900 text-xs">${escapeHtml(m.nombre_completo || m.username)}</span>
                                                     <span class="font-mono text-[10px] bg-slate-100 text-slate-700 font-semibold px-1.5 py-0.2 rounded border">#${m.legajo}</span>
                                                     ${esLider ? '<span class="text-[10px] bg-indigo-100 text-indigo-700 font-bold px-2 py-0.2 rounded-full border border-indigo-200">LÍDER</span>' : ''}
-                                                    ${esCrit ? '<span class="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.2 rounded-full border border-amber-200" title="Puesto Crítico / Espejo"><i class="fas fa-lock text-[9px] mr-1"></i>Crítico</span>' : ''}
                                                 </div>
                                                 <div class="text-[11px] text-slate-500 mt-0.5">
                                                     ${escapeHtml(m.rol_nombre || m.subsector_nombre || 'Colaborador')} ${m.email ? '· ' + escapeHtml(m.email) : ''}
