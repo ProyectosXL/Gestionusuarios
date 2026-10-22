@@ -1227,9 +1227,18 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                                         </td>
                                         <td class="py-3 px-4">
                                             <?php if(!empty($u['rol_nombre'])): ?>
-                                                <span class="inline-flex items-center px-2.5 py-1 rounded-lg text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                                                    <i class="fas fa-user-shield mr-1 text-[9px]"></i> <?= htmlspecialchars($u['rol_nombre']) ?>
-                                                </span>
+                                                <?php if(!empty($u['rol_id'])): ?>
+                                                    <a href="?tab=hub_matriz&rol_id=<?= (int)$u['rol_id'] ?>" 
+                                                       title="Ver y configurar permisos en Matriz Hub & Accesos"
+                                                       class="inline-flex items-center px-2.5 py-1 rounded-lg text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-600 hover:text-white hover:border-indigo-600 transition group shadow-2xs">
+                                                        <i class="fas fa-user-shield mr-1 text-[9px] group-hover:scale-110 transition-transform"></i> <?= htmlspecialchars($u['rol_nombre']) ?>
+                                                        <i class="fas fa-arrow-up-right-from-square ml-1 text-[8px] opacity-70 group-hover:opacity-100"></i>
+                                                    </a>
+                                                <?php else: ?>
+                                                    <span class="inline-flex items-center px-2.5 py-1 rounded-lg text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                                        <i class="fas fa-user-shield mr-1 text-[9px]"></i> <?= htmlspecialchars($u['rol_nombre']) ?>
+                                                    </span>
+                                                <?php endif; ?>
                                             <?php else: ?>
                                                 <span class="text-slate-400 italic text-[11px]">Sin rol</span>
                                             <?php endif; ?>
@@ -1813,7 +1822,7 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                         <!-- Expandir / Colapsar todos -->
                         <button type="button" onclick="toggleTodosSectoresHub()" id="btnToggleTodosSectores" 
                                 class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl border border-slate-200 transition flex items-center gap-1.5">
-                            <i class="fas fa-layer-group"></i> <span id="lblToggleTodosSectores">Colapsar todos</span>
+                            <i class="fas fa-layer-group"></i> <span id="lblToggleTodosSectores">Expandir todos</span>
                         </button>
                     </div>
                 </div>
@@ -1854,7 +1863,7 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                             </div>
 
                             <!-- Contenido del Sector: Subsectores y Roles -->
-                            <div class="p-5 space-y-6 sector-hub-contenido" id="contenidoSector_<?= $s['id'] ?>">
+                            <div class="p-5 space-y-6 sector-hub-contenido hidden" id="contenidoSector_<?= $s['id'] ?>">
                                 <?php if(empty($s['subsectores'])): ?>
                                     <p class="text-xs text-slate-400 italic py-2">No hay subsectores en este sector.</p>
                                 <?php else: ?>
@@ -3534,17 +3543,20 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                 });
             });
 
-            // Debounce inteligente para búsqueda en usuarios
+            // Búsqueda rápida automática con debounce optimizado en usuarios (sin necesidad de presionar Enter)
             const inputQ = document.getElementById('inputBusquedaUsuarios');
             const iconQ = document.getElementById('searchIconUsr');
-            if (inputQ && iconQ) {
+            const formFiltroUsuarios = document.getElementById('formFiltroUsuarios');
+            if (inputQ && iconQ && formFiltroUsuarios) {
                 let debounceTimeout = null;
                 inputQ.addEventListener('input', () => {
                     iconQ.className = 'fas fa-circle-notch fa-spin absolute left-3.5 top-2.5 text-indigo-500 text-xs transition-all';
                     clearTimeout(debounceTimeout);
                     debounceTimeout = setTimeout(() => {
-                        iconQ.className = 'fas fa-search absolute left-3.5 top-2.5 text-slate-400 text-xs transition-all';
-                    }, 400);
+                        const pageInp = formFiltroUsuarios.querySelector('input[name="p"]');
+                        if (pageInp) pageInp.value = '1';
+                        formFiltroUsuarios.submit();
+                    }, 350);
                 });
             }
 
@@ -4600,7 +4612,7 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
             }
         }
 
-        let todosSectoresExpandidos = true;
+        let todosSectoresExpandidos = false;
         function toggleTodosSectoresHub() {
             todosSectoresExpandidos = !todosSectoresExpandidos;
             document.querySelectorAll('.sector-hub-contenido').forEach(c => {
@@ -4612,6 +4624,32 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
             const lbl = document.getElementById('lblToggleTodosSectores');
             if (lbl) lbl.textContent = todosSectoresExpandidos ? 'Colapsar todos' : 'Expandir todos';
         }
+
+        // Si se ingresó con ?rol_id=XX, expandir el sector contenedor y hacer scroll suave hasta el rol resaltándolo
+        document.addEventListener('DOMContentLoaded', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const rolTargetId = urlParams.get('rol_id');
+            if (rolTargetId) {
+                const targetCard = document.querySelector(`.rol-hub-card[data-rol-id="${rolTargetId}"]`);
+                if (targetCard) {
+                    const sectorBloque = targetCard.closest('.sector-hub-bloque');
+                    if (sectorBloque) {
+                        const secId = sectorBloque.getAttribute('data-sector-id');
+                        const contenido = document.getElementById(`contenidoSector_${secId}`);
+                        const chevron = document.getElementById(`chevronSector_${secId}`);
+                        if (contenido) contenido.classList.remove('hidden');
+                        if (chevron) chevron.classList.add('rotate-180');
+                    }
+                    setTimeout(() => {
+                        targetCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        targetCard.classList.add('ring-2', 'ring-indigo-500', 'shadow-lg', 'bg-indigo-50/30');
+                        setTimeout(() => {
+                            targetCard.classList.remove('ring-2', 'ring-indigo-500', 'shadow-lg', 'bg-indigo-50/30');
+                        }, 3000);
+                    }, 250);
+                }
+            }
+        });
 
         function filtrarMatrizHubEnVivo(val) {
             const q = val.toLowerCase().trim();
