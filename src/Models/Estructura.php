@@ -430,6 +430,30 @@ class Estructura {
             unset($itemsSec);
         }
 
+        // Ordenamiento amigable para DEI según el orden de sus tarjetas
+        if ($moduloId === 18) {
+            $ordenClavesDei = [
+                'dei.item.control_de_gestion_y_metricas_kpis_innovacion' => 0,
+                'dei.item.control_de_gestion_y_metricas_comparar_ventas' => 1,
+                'dei.item.control_de_gestion_y_metricas_comparar_stock' => 2,
+                'dei.item.control_de_gestion_y_metricas_comparador_de_tablas_checker' => 3,
+                'dei.item.control_de_gestion_y_metricas_tablero_resultado_inventarios' => 4,
+                'dei.item.control_de_gestion_y_metricas_app_conteos_locales_propios' => 5,
+                'dei.item.control_de_gestion_y_metricas_app_conteos_franquicias' => 6,
+                'dei.item.control_de_gestion_y_metricas_administrador_contador_ingresos_locales' => 7,
+                'dei.item.gestion_de_proyectos_administracion_de_proyectos' => 8,
+                'dei.item.gestion_de_proyectos_cargar_proyecto' => 9,
+            ];
+            foreach ($secciones as $sec => &$itemsSec) {
+                usort($itemsSec, function($a, $b) use ($ordenClavesDei) {
+                    $posA = $ordenClavesDei[$a['clave'] ?? ''] ?? 999;
+                    $posB = $ordenClavesDei[$b['clave'] ?? ''] ?? 999;
+                    return $posA <=> $posB;
+                });
+            }
+            unset($itemsSec);
+        }
+
         return [
             'modulo' => $modulo,
             'rol_id' => $rolId,
