@@ -3548,6 +3548,13 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
             const iconQ = document.getElementById('searchIconUsr');
             const formFiltroUsuarios = document.getElementById('formFiltroUsuarios');
             if (inputQ && iconQ && formFiltroUsuarios) {
+                // Si la recarga provino de la búsqueda, restaurar el foco y cursor al final
+                if (sessionStorage.getItem('busqueda_usuarios_focus') === '1') {
+                    sessionStorage.removeItem('busqueda_usuarios_focus');
+                    inputQ.focus();
+                    const valLen = inputQ.value.length;
+                    inputQ.setSelectionRange(valLen, valLen);
+                }
                 let debounceTimeout = null;
                 inputQ.addEventListener('input', () => {
                     iconQ.className = 'fas fa-circle-notch fa-spin absolute left-3.5 top-2.5 text-indigo-500 text-xs transition-all';
@@ -3555,8 +3562,17 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                     debounceTimeout = setTimeout(() => {
                         const pageInp = formFiltroUsuarios.querySelector('input[name="p"]');
                         if (pageInp) pageInp.value = '1';
+                        sessionStorage.setItem('busqueda_usuarios_focus', '1');
                         formFiltroUsuarios.submit();
-                    }, 350);
+                    }, 800);
+                });
+
+                // Si presiona Enter, cancelar debounce y enviar de inmediato
+                inputQ.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        clearTimeout(debounceTimeout);
+                        sessionStorage.setItem('busqueda_usuarios_focus', '1');
+                    }
                 });
             }
 
@@ -4816,18 +4832,34 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
 
                 items.forEach(it => {
                     const searchStr = (secNombre + ' ' + it.nombre + ' ' + (it.descripcion_limpia || '')).toLowerCase();
+                    const isVer = (it.nombre || '').startsWith('Ver:');
+                    const isEdit = (it.nombre || '').startsWith('Editar:');
+                    let tipoBadge = '';
+                    let displayNombre = it.nombre;
+                    if (isVer) {
+                        displayNombre = it.nombre.replace(/^Ver:\s*/, '');
+                        tipoBadge = `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-sky-50 text-sky-700 border border-sky-200/80 shrink-0"><i class="fas fa-eye text-[8px] mr-1"></i>Lectura</span>`;
+                    } else if (isEdit) {
+                        displayNombre = it.nombre.replace(/^Editar:\s*/, '');
+                        tipoBadge = `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200/80 shrink-0"><i class="fas fa-pen text-[8px] mr-1"></i>Edición</span>`;
+                    }
+
                     html += `
                         <label class="submod-item-card flex items-start p-2.5 rounded-xl border bg-white cursor-pointer transition hover:border-indigo-300 ${it.activo ? 'border-indigo-200 bg-indigo-50/20' : 'border-slate-200 text-slate-600'}" 
                                data-search="${searchStr}">
                             <input type="checkbox" 
                                    value="${it.id}" 
+                                   data-clave="${it.clave || ''}"
                                    data-sec-idx="${secIdx}"
                                    class="chk-submod-item rounded text-indigo-600 focus:ring-indigo-500 mt-0.5 shrink-0" 
                                    ${it.activo ? 'checked' : ''} 
                                    onchange="actualizarEstadoItemSubmod(this)">
-                            <div class="ml-2.5 min-w-0">
-                                <div class="text-xs font-bold text-slate-900 leading-tight">${it.nombre}</div>
-                                <div class="text-[11px] text-slate-400 line-clamp-2 mt-0.5 leading-snug">${it.descripcion_limpia || 'Acceso directo'}</div>
+                            <div class="ml-2.5 min-w-0 flex-1">
+                                <div class="flex items-center justify-between gap-1.5 mb-0.5">
+                                    <div class="text-xs font-bold text-slate-900 leading-tight truncate">${displayNombre}</div>
+                                    ${tipoBadge}
+                                </div>
+                                <div class="text-[11px] text-slate-400 line-clamp-2 leading-snug">${it.descripcion_limpia || 'Acceso directo'}</div>
                             </div>
                         </label>
                     `;
@@ -4842,7 +4874,7 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
             cont.innerHTML = html;
         }
 
-        function actualizarEstadoItemSubmod(chk) {
+        function actualizarEstadoItemSubmod(chk, noCascade = false) {
             const card = chk.closest('.submod-item-card');
             if (card) {
                 if (chk.checked) {
@@ -4851,6 +4883,52 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                 } else {
                     card.classList.remove('border-indigo-200', 'bg-indigo-50/20');
                     card.classList.add('border-slate-200');
+                }
+            }
+
+            // Regla de cascada inteligente: Escribir implica Leer (evita permisos de edición huérfanos)
+            if (!noCascade) {
+                const clave = chk.getAttribute('data-clave') || '';
+                const isChecked = chk.checked;
+
+                if (clave.startsWith('cashflow.')) {
+                    if (isChecked) {
+                        // Si se marca edición, asegurar que la pestaña de lectura esté habilitada
+                        let parentClave = null;
+                        if (clave.startsWith('cashflow.editar.parametros.')) {
+                            parentClave = 'cashflow.tab.parametros';
+                        } else if (clave.startsWith('cashflow.editar.')) {
+                            const tabPart = clave.replace('cashflow.editar.', '');
+                            parentClave = 'cashflow.tab.' + tabPart;
+                        }
+
+                        if (parentClave) {
+                            const parentChk = document.querySelector(`.chk-submod-item[data-clave="${parentClave}"]`);
+                            if (parentChk && !parentChk.checked) {
+                                parentChk.checked = true;
+                                actualizarEstadoItemSubmod(parentChk, true);
+                            }
+                        }
+                    } else {
+                        // Si se desmarca lectura, desmarcar automáticamente las ediciones dependientes
+                        if (clave === 'cashflow.tab.parametros') {
+                            document.querySelectorAll('.chk-submod-item').forEach(c => {
+                                const cClave = c.getAttribute('data-clave') || '';
+                                if (cClave.startsWith('cashflow.editar.parametros.') && c.checked) {
+                                    c.checked = false;
+                                    actualizarEstadoItemSubmod(c, true);
+                                }
+                            });
+                        } else if (clave.startsWith('cashflow.tab.')) {
+                            const tabPart = clave.replace('cashflow.tab.', '');
+                            const editClave = 'cashflow.editar.' + tabPart;
+                            const editChk = document.querySelector(`.chk-submod-item[data-clave="${editClave}"]`);
+                            if (editChk && editChk.checked) {
+                                editChk.checked = false;
+                                actualizarEstadoItemSubmod(editChk, true);
+                            }
+                        }
+                    }
                 }
             }
 
@@ -4875,16 +4953,52 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
             const chks = document.querySelectorAll(`#secItemsCont_${secIdx} .chk-submod-item`);
             chks.forEach(c => {
                 c.checked = marcar;
-                actualizarEstadoItemSubmod(c);
+                actualizarEstadoItemSubmod(c, true);
             });
+            // Si se desmarcó la sección, asegurar que no queden ediciones huérfanas
+            if (!marcar) {
+                chks.forEach(c => {
+                    const cClave = c.getAttribute('data-clave') || '';
+                    if (cClave.startsWith('cashflow.tab.')) {
+                        const tabPart = cClave.replace('cashflow.tab.', '');
+                        const editClave = 'cashflow.editar.' + tabPart;
+                        const editChk = document.querySelector(`.chk-submod-item[data-clave="${editClave}"]`);
+                        if (editChk && editChk.checked) {
+                            editChk.checked = false;
+                            actualizarEstadoItemSubmod(editChk, true);
+                        }
+                    }
+                });
+            }
+            const itemsSec = document.querySelectorAll(`#secItemsCont_${secIdx} .chk-submod-item`);
+            const itemsSecActivos = document.querySelectorAll(`#secItemsCont_${secIdx} .chk-submod-item:checked`);
+            const secBadge = document.querySelector(`.sec-counter-${secIdx}`);
+            if (secBadge) {
+                secBadge.textContent = `${itemsSecActivos.length} / ${itemsSec.length}`;
+            }
+            const total = document.querySelectorAll('.chk-submod-item').length;
+            const activos = document.querySelectorAll('.chk-submod-item:checked').length;
+            document.getElementById('submodModalContador').textContent = `${activos} / ${total} habilitadas`;
         }
 
         function toggleTodosSubmodulos(marcar) {
             const chks = document.querySelectorAll('.chk-submod-item');
             chks.forEach(c => {
                 c.checked = marcar;
-                actualizarEstadoItemSubmod(c);
+                actualizarEstadoItemSubmod(c, true);
             });
+            document.querySelectorAll('.seccion-submod-bloque').forEach((sec, idx) => {
+                const sIdx = idx + 1;
+                const itemsSec = document.querySelectorAll(`#secItemsCont_${sIdx} .chk-submod-item`);
+                const itemsSecActivos = document.querySelectorAll(`#secItemsCont_${sIdx} .chk-submod-item:checked`);
+                const secBadge = document.querySelector(`.sec-counter-${sIdx}`);
+                if (secBadge) {
+                    secBadge.textContent = `${itemsSecActivos.length} / ${itemsSec.length}`;
+                }
+            });
+            const total = document.querySelectorAll('.chk-submod-item').length;
+            const activos = document.querySelectorAll('.chk-submod-item:checked').length;
+            document.getElementById('submodModalContador').textContent = `${activos} / ${total} habilitadas`;
         }
 
         function filtrarSubmodulosEnModal(val) {

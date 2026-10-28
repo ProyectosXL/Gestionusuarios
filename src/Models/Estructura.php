@@ -412,6 +412,24 @@ class Estructura {
             }
         }
 
+        // Ordenamiento amigable dentro de cada sección para Cashflow (emparejar Ver con Editar)
+        if ($moduloId === 7) {
+            foreach ($secciones as $sec => &$itemsSec) {
+                usort($itemsSec, function($a, $b) {
+                    $fnSortKey = function($it) {
+                        $k = $it['clave'] ?? '';
+                        if ($k === 'cashflow.tab.parametros') return '00_tab_parametros';
+                        if (strpos($k, 'cashflow.editar.parametros.') === 0) return '01_param_' . str_replace('cashflow.editar.parametros.', '', $k);
+                        if (strpos($k, 'cashflow.tab.') === 0) return str_replace('cashflow.tab.', '', $k) . '_00_ver';
+                        if (strpos($k, 'cashflow.editar.') === 0) return str_replace('cashflow.editar.', '', $k) . '_01_editar';
+                        return $k;
+                    };
+                    return strcmp($fnSortKey($a), $fnSortKey($b));
+                });
+            }
+            unset($itemsSec);
+        }
+
         return [
             'modulo' => $modulo,
             'rol_id' => $rolId,
