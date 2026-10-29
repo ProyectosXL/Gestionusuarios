@@ -359,10 +359,12 @@ class Estructura {
 
         // Info del rol
         $rolNombre = '';
+        $esRolAdmin = false;
         if ($rolId > 0) {
-            $stmtRol = sqlsrv_query($this->db, "SELECT nombre FROM FP_ROLES_PERMISOS_MAP WHERE id = ?", [$rolId]);
+            $stmtRol = sqlsrv_query($this->db, "SELECT nombre, es_admin FROM FP_ROLES_PERMISOS_MAP WHERE id = ?", [$rolId]);
             if ($stmtRol && ($rRol = sqlsrv_fetch_array($stmtRol, SQLSRV_FETCH_ASSOC))) {
                 $rolNombre = $rRol['nombre'];
+                $esRolAdmin = !empty($rRol['es_admin']) || ($rolId === 1);
             }
         }
 
@@ -391,6 +393,39 @@ class Estructura {
         // por defecto consideramos activos todos los ítems (hasta que el admin personalice)
         $tieneConfiguracionEspecifica = !empty($permisosRolIds);
 
+        $mapaHijos = [
+            'admin.item.dashboard_y_reportes_reportes_de_administracion' => [
+                'modulo_hijo_id' => 23,
+                'modulo_hijo_nombre' => 'Reportes de Administración',
+                'modulo_hijo_cant_permisos' => 4,
+            ],
+            'finan.item.sistemas_y_reportes_financieros_cashflow' => [
+                'modulo_hijo_id' => 7,
+                'modulo_hijo_nombre' => 'Cashflow - Flujo de Fondos',
+                'modulo_hijo_cant_permisos' => 46,
+            ],
+            'finan.item.sistemas_y_reportes_financieros_informe_economico' => [
+                'modulo_hijo_id' => 20,
+                'modulo_hijo_nombre' => 'Informe Económico',
+                'modulo_hijo_cant_permisos' => 6,
+            ]
+        ];
+
+        $hijosPermitidosRol = [];
+        if (($moduloId === 12 || $moduloId === 13) && $rolId > 0) {
+            $subIds = ($moduloId === 12) ? '23' : '7, 20';
+            $sqlH = "SELECT DISTINCT p.modulo_id 
+                     FROM FP_ROL_PERMISO rp 
+                     JOIN FP_PERMISOS p ON p.id = rp.permiso_id 
+                     WHERE rp.rol_id = ? AND p.modulo_id IN ($subIds)";
+            $stmtH = sqlsrv_query($this->db, $sqlH, [$rolId]);
+            if ($stmtH) {
+                while ($rH = sqlsrv_fetch_array($stmtH, SQLSRV_FETCH_ASSOC)) {
+                    $hijosPermitidosRol[(int)$rH['modulo_id']] = true;
+                }
+            }
+        }
+
         if ($stmtItems) {
             while ($p = sqlsrv_fetch_array($stmtItems, SQLSRV_FETCH_ASSOC)) {
                 $desc = $p['descripcion'] ?? '';
@@ -404,12 +439,30 @@ class Estructura {
                 $p['seccion'] = $secNombre;
                 $p['descripcion_limpia'] = $itemDesc;
                 $activo = $tieneConfiguracionEspecifica ? isset($permisosRolIds[$p['id']]) : true;
+
+                if (($moduloId === 12 || $moduloId === 13) && isset($mapaHijos[$p['clave']])) {
+                    $hijoInfo = $mapaHijos[$p['clave']];
+                    $p['modulo_hijo_id'] = $hijoInfo['modulo_hijo_id'];
+                    $p['modulo_hijo_nombre'] = $hijoInfo['modulo_hijo_nombre'];
+                    $p['modulo_hijo_cant_permisos'] = $hijoInfo['modulo_hijo_cant_permisos'];
+                    if (!$tieneConfiguracionEspecifica) {
+                        $activo = $esRolAdmin ? true : !empty($hijosPermitidosRol[$hijoInfo['modulo_hijo_id']]);
+                    }
+                }
+
                 $p['activo'] = $activo;
 
                 $secciones[$secNombre][] = $p;
                 $totalItems++;
                 if ($activo) $totalActivos++;
             }
+        }
+
+        // En ADMIN, posicionar la sección 'Dashboard y Reportes' en primer lugar (al igual que Portal Dirección)
+        if ($moduloId === 12 && isset($secciones['Dashboard y Reportes'])) {
+            $secDash = ['Dashboard y Reportes' => $secciones['Dashboard y Reportes']];
+            unset($secciones['Dashboard y Reportes']);
+            $secciones = $secDash + $secciones;
         }
 
         // Ordenamiento amigable dentro de cada sección para Cashflow (emparejar Ver con Editar)

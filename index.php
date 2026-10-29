@@ -1813,7 +1813,7 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
 
                     <div class="flex flex-wrap items-center gap-2.5">
                         <!-- Buscador en tiempo real -->
-                        <div class="relative w-full sm:w-64">
+                        <div class="relative w-full sm:w-80">
                             <i class="fas fa-search absolute left-3 top-2.5 text-slate-400 text-xs"></i>
                             <input type="text" id="buscadorMatrizHub" oninput="filtrarMatrizHubEnVivo(this.value)" placeholder="Buscar por rol, sector, app..." 
                                    class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
@@ -2052,7 +2052,7 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
 
                     <div class="flex flex-wrap items-center gap-2.5">
                         <!-- Buscador en tiempo real -->
-                        <div class="relative w-full sm:w-64">
+                        <div class="relative w-full sm:w-80">
                             <i class="fas fa-search absolute left-3 top-2.5 text-slate-400 text-xs"></i>
                             <input type="text" id="buscadorModulos" oninput="filtrarModulosEnVivo(this.value)" placeholder="Buscar módulo, código, URL..." 
                                    class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
@@ -2227,7 +2227,7 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                     </div>
 
                     <div class="flex flex-wrap items-center gap-2.5">
-                        <div class="relative w-full sm:w-64">
+                        <div class="relative w-full sm:w-80">
                             <i class="fas fa-search absolute left-3 top-2.5 text-slate-400 text-xs"></i>
                             <input type="text" id="buscadorEquipos" oninput="filtrarEquiposEnVivo(this.value)" placeholder="Buscar equipo, líder, sector..." 
                                    class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
@@ -2349,10 +2349,13 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
 
     <!-- Modal Configurar Submódulos y Accesos Internos de un Centralizador -->
     <div id="modalSubmodulosCentralizador" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs hidden items-center justify-center z-50 p-4">
-        <div class="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full p-6 shadow-xl max-h-[90vh] flex flex-col">
+        <div class="bg-white border border-slate-200 rounded-2xl max-w-5xl w-full p-6 sm:p-7 shadow-2xl max-h-[92vh] flex flex-col">
             <!-- Cabecera del Modal -->
             <div class="flex items-center justify-between pb-3 border-b border-slate-100 mb-3 shrink-0">
                 <div class="flex items-center gap-2.5">
+                    <button type="button" id="btnVolverModalPadre" onclick="volverModalPadre()" class="hidden items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition cursor-pointer shrink-0">
+                        <i class="fas fa-arrow-left"></i> <span id="txtBtnVolverModal">Volver</span>
+                    </button>
                     <div id="submodModalIconBox" class="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center text-sm shadow-2xs">
                         <i class="fas fa-sliders"></i>
                     </div>
@@ -2370,7 +2373,7 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
 
             <!-- Barra de Controles y Buscador del Modal -->
             <div class="flex flex-wrap items-center justify-between gap-2.5 pb-3 border-b border-slate-100 mb-3 shrink-0">
-                <div class="relative w-full sm:w-64">
+                <div class="relative w-full sm:w-80">
                     <i class="fas fa-search absolute left-3 top-2.5 text-slate-400 text-xs"></i>
                     <input type="text" id="buscadorSubmodulos" oninput="filtrarSubmodulosEnModal(this.value)" placeholder="Buscar aplicación o menú..." 
                            class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
@@ -4260,6 +4263,14 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
         }
 
         function cerrarModal(id) {
+            if (id === 'modalSubmodulosCentralizador') {
+                if (typeof submodHistoryStack !== 'undefined') {
+                    submodHistoryStack = [];
+                }
+                if (typeof actualizarBotonVolverModal === 'function') {
+                    actualizarBotonVolverModal();
+                }
+            }
             const m = document.getElementById(id);
             if (m) {
                 m.classList.add('hidden');
@@ -4739,10 +4750,56 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
         // ==================== JS SUBMÓDULOS DE CENTRALIZADORES ====================
         let currentSubmodRolId = null;
         let currentSubmodModuloId = null;
+        let currentSubmodRolNombre = '';
+        let currentSubmodModuloNombre = '';
+        let submodHistoryStack = [];
 
         function abrirModalSubmodulos(rolId, moduloId, rolNombre, moduloNombre) {
+            submodHistoryStack = [];
+            actualizarBotonVolverModal();
+            cargarSubmodulosEnModal(rolId, moduloId, rolNombre, moduloNombre);
+            abrirModal('modalSubmodulosCentralizador');
+        }
+
+        function navegarASubmoduloHijo(childModuloId, childModuloNombre) {
+            // Guardar en el historial para permitir volver al centralizador padre
+            submodHistoryStack.push({
+                rolId: currentSubmodRolId,
+                moduloId: currentSubmodModuloId,
+                rolNombre: currentSubmodRolNombre,
+                moduloNombre: currentSubmodModuloNombre
+            });
+            actualizarBotonVolverModal();
+            cargarSubmodulosEnModal(currentSubmodRolId, childModuloId, currentSubmodRolNombre, childModuloNombre);
+        }
+
+        function volverModalPadre() {
+            if (submodHistoryStack.length === 0) return;
+            const parent = submodHistoryStack.pop();
+            actualizarBotonVolverModal();
+            cargarSubmodulosEnModal(parent.rolId, parent.moduloId, parent.rolNombre, parent.moduloNombre);
+        }
+
+        function actualizarBotonVolverModal() {
+            const btnVolver = document.getElementById('btnVolverModalPadre');
+            const txtBtn = document.getElementById('txtBtnVolverModal');
+            if (!btnVolver) return;
+            if (submodHistoryStack.length > 0) {
+                const parent = submodHistoryStack[submodHistoryStack.length - 1];
+                if (txtBtn) txtBtn.textContent = 'Volver a ' + parent.moduloNombre;
+                btnVolver.classList.remove('hidden');
+                btnVolver.classList.add('inline-flex');
+            } else {
+                btnVolver.classList.add('hidden');
+                btnVolver.classList.remove('inline-flex');
+            }
+        }
+
+        function cargarSubmodulosEnModal(rolId, moduloId, rolNombre, moduloNombre) {
             currentSubmodRolId = rolId;
             currentSubmodModuloId = moduloId;
+            currentSubmodRolNombre = rolNombre;
+            currentSubmodModuloNombre = moduloNombre;
 
             document.getElementById('submodModalModNombre').textContent = moduloNombre;
             document.getElementById('submodModalRolNombre').textContent = rolNombre;
@@ -4753,7 +4810,6 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                     Cargando menú y aplicaciones internas...
                 </div>
             `;
-            abrirModal('modalSubmodulosCentralizador');
 
             const formData = new FormData();
             formData.append('ajax', '1');
@@ -4794,7 +4850,7 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
             if (Object.keys(secciones).length === 0) {
                 cont.innerHTML = `
                     <div class="py-8 text-center text-slate-400 text-xs">
-                        Este centralizador no cuenta con submódulos configurables.
+                        Este módulo no cuenta con submódulos configurables.
                     </div>
                 `;
                 return;
@@ -4827,7 +4883,7 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                                 </button>
                             </div>
                         </div>
-                        <div class="p-3 grid grid-cols-1 sm:grid-cols-2 gap-2" id="secItemsCont_${secIdx}">
+                        <div class="p-4 grid grid-cols-1 md:grid-cols-2 gap-3" id="secItemsCont_${secIdx}">
                 `;
 
                 items.forEach(it => {
@@ -4836,7 +4892,9 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                     const isEdit = (it.nombre || '').startsWith('Editar:');
                     let tipoBadge = '';
                     let displayNombre = it.nombre;
-                    if (isVer) {
+                    if (it.modulo_hijo_id) {
+                        tipoBadge = `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-indigo-50 text-indigo-700 border border-indigo-200/80 shrink-0"><i class="fas fa-layer-group text-[8px] mr-1"></i>Módulo Satélite</span>`;
+                    } else if (isVer) {
                         displayNombre = it.nombre.replace(/^Ver:\s*/, '');
                         tipoBadge = `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-sky-50 text-sky-700 border border-sky-200/80 shrink-0"><i class="fas fa-eye text-[8px] mr-1"></i>Lectura</span>`;
                     } else if (isEdit) {
@@ -4844,23 +4902,47 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                         tipoBadge = `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200/80 shrink-0"><i class="fas fa-pen text-[8px] mr-1"></i>Edición</span>`;
                     }
 
-                    html += `
-                        <label class="submod-item-card flex items-start p-2.5 rounded-xl border bg-white cursor-pointer transition hover:border-indigo-300 ${it.activo ? 'border-indigo-200 bg-indigo-50/20' : 'border-slate-200 text-slate-600'}" 
-                               data-search="${searchStr}">
-                            <input type="checkbox" 
-                                   value="${it.id}" 
-                                   data-clave="${it.clave || ''}"
-                                   data-sec-idx="${secIdx}"
-                                   class="chk-submod-item rounded text-indigo-600 focus:ring-indigo-500 mt-0.5 shrink-0" 
-                                   ${it.activo ? 'checked' : ''} 
-                                   onchange="actualizarEstadoItemSubmod(this)">
-                            <div class="ml-2.5 min-w-0 flex-1">
-                                <div class="flex items-center justify-between gap-1.5 mb-0.5">
-                                    <div class="text-xs font-bold text-slate-900 leading-tight truncate">${displayNombre}</div>
-                                    ${tipoBadge}
-                                </div>
-                                <div class="text-[11px] text-slate-400 line-clamp-2 leading-snug">${it.descripcion_limpia || 'Acceso directo'}</div>
+                    let submodBotonHtml = '';
+                    if (it.modulo_hijo_id) {
+                        const hId = it.modulo_hijo_id;
+                        const hNom = (it.modulo_hijo_nombre || it.nombre).replace(/'/g, "\\'");
+                        const hCant = it.modulo_hijo_cant_permisos || 0;
+                        submodBotonHtml = `
+                            <div class="mt-3 pt-2.5 border-t border-slate-100 w-full">
+                                <button type="button" 
+                                        onclick="event.preventDefault(); event.stopPropagation(); navegarASubmoduloHijo(${hId}, '${hNom}')" 
+                                        class="w-full inline-flex items-center justify-between px-3 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold text-xs border border-indigo-200/80 transition cursor-pointer shadow-2xs">
+                                    <span class="flex items-center gap-2">
+                                        <i class="fas fa-sliders text-indigo-500"></i> Configurar permisos internos
+                                    </span>
+                                    <span class="bg-indigo-200/80 text-indigo-900 text-[11px] px-2 py-0.5 rounded-lg font-bold">
+                                        ${hCant} permisos &rarr;
+                                    </span>
+                                </button>
                             </div>
+                        `;
+                    }
+
+                    html += `
+                        <label class="submod-item-card flex flex-col justify-between p-3.5 rounded-xl border bg-white cursor-pointer transition hover:border-indigo-300 ${it.activo ? 'border-indigo-200 bg-indigo-50/20 shadow-xs' : 'border-slate-200 text-slate-600'}" 
+                               data-search="${searchStr}">
+                            <div class="flex items-start w-full">
+                                <input type="checkbox" 
+                                       value="${it.id}" 
+                                       data-clave="${it.clave || ''}"
+                                       data-sec-idx="${secIdx}"
+                                       class="chk-submod-item rounded text-indigo-600 focus:ring-indigo-500 mt-0.5 shrink-0" 
+                                       ${it.activo ? 'checked' : ''} 
+                                       onchange="actualizarEstadoItemSubmod(this)">
+                                <div class="ml-2.5 min-w-0 flex-1">
+                                    <div class="flex items-center justify-between gap-1.5 mb-0.5">
+                                        <div class="text-xs font-bold text-slate-900 leading-snug">${displayNombre}</div>
+                                        ${tipoBadge}
+                                    </div>
+                                    <div class="text-[11px] text-slate-400 line-clamp-2 leading-snug">${it.descripcion_limpia || 'Acceso directo'}</div>
+                                </div>
+                            </div>
+                            ${submodBotonHtml}
                         </label>
                     `;
                 });
@@ -4955,7 +5037,6 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                 c.checked = marcar;
                 actualizarEstadoItemSubmod(c, true);
             });
-            // Si se desmarcó la sección, asegurar que no queden ediciones huérfanas
             if (!marcar) {
                 chks.forEach(c => {
                     const cClave = c.getAttribute('data-clave') || '';
@@ -5009,7 +5090,6 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                 c.classList.toggle('hidden', !(!q || searchStr.includes(q)));
             });
 
-            // Ocultar secciones si no tienen ítems visibles
             document.querySelectorAll('.seccion-submod-bloque').forEach(sec => {
                 const hayVisibles = Array.from(sec.querySelectorAll('.submod-item-card')).some(c => !c.classList.contains('hidden'));
                 sec.classList.toggle('hidden', !hayVisibles && q !== '');
@@ -5037,8 +5117,12 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                     btn.disabled = false;
                     btn.innerHTML = '<i class="fas fa-check"></i> Guardar Accesos Internos';
                     if (res.ok) {
-                        cerrarModal('modalSubmodulosCentralizador');
                         mostrarToast(res.mensaje || 'Accesos internos guardados con éxito');
+                        if (submodHistoryStack.length > 0) {
+                            volverModalPadre();
+                        } else {
+                            cerrarModal('modalSubmodulosCentralizador');
+                        }
                     } else {
                         mostrarToast(res.error || 'Error al guardar accesos', 'error');
                     }
