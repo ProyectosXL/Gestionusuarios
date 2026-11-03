@@ -1880,19 +1880,6 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                                                         <?= count($sub['roles']) ?> <?= count($sub['roles']) === 1 ? 'rol' : 'roles' ?>
                                                     </span>
                                                 </div>
-
-                                                <?php if(!empty($sub['roles'])): ?>
-                                                    <!-- Acciones rápidas para todo el subsector -->
-                                                    <div class="flex items-center gap-2">
-                                                        <span class="text-[11px] text-slate-400 mr-1">Aplicar a todos:</span>
-                                                        <button type="button" onclick="aplicarTodosRolesSubsector(<?= $sub['id'] ?>, true)" class="px-2 py-1 bg-white hover:bg-slate-100 text-indigo-700 text-[11px] font-semibold rounded-lg border border-slate-200 transition">
-                                                            Habilitar Todas
-                                                        </button>
-                                                        <button type="button" onclick="aplicarTodosRolesSubsector(<?= $sub['id'] ?>, false)" class="px-2 py-1 bg-white hover:bg-slate-100 text-slate-600 text-[11px] font-semibold rounded-lg border border-slate-200 transition">
-                                                            Solo NODO
-                                                        </button>
-                                                    </div>
-                                                <?php endif; ?>
                                             </div>
 
                                             <?php if(empty($sub['roles'])): ?>
@@ -1932,23 +1919,6 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                                                                     <span id="badgeRolApps_<?= $rol['id'] ?>" class="px-2.5 py-1 rounded-lg text-xs font-bold <?= $cantActivas > 0 ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' : 'bg-slate-100 text-slate-500 border border-slate-200' ?>">
                                                                         <span class="count-val"><?= $cantActivas ?></span> / <?= $totalApps ?> apps activas
                                                                     </span>
-
-                                                                    <!-- Botones de Acción Rápida por Rol -->
-                                                                    <button type="button" onclick="marcarTodasAppsRol(<?= $rol['id'] ?>, true)" 
-                                                                            title="Habilitar todas las aplicaciones" 
-                                                                            class="p-1.5 bg-slate-50 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 rounded-lg border border-slate-200 text-xs transition">
-                                                                        <i class="fas fa-check-double"></i>
-                                                                    </button>
-                                                                    <button type="button" onclick="marcarTodasAppsRol(<?= $rol['id'] ?>, false)" 
-                                                                            title="Desmarcar todas las aplicaciones" 
-                                                                            class="p-1.5 bg-slate-50 hover:bg-rose-50 text-slate-600 hover:text-rose-700 rounded-lg border border-slate-200 text-xs transition">
-                                                                        <i class="fas fa-ban"></i>
-                                                                    </button>
-                                                                    <button type="button" onclick="abrirModalCopiarPermisosHub(<?= $rol['id'] ?>)" 
-                                                                            title="Copiar accesos de este rol a otros" 
-                                                                            class="p-1.5 bg-slate-50 hover:bg-indigo-50 text-slate-600 hover:text-indigo-700 rounded-lg border border-slate-200 text-xs transition">
-                                                                        <i class="fas fa-copy"></i>
-                                                                    </button>
                                                                 </div>
                                                             </div>
 

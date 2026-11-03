@@ -29,6 +29,7 @@
         "admin.item.contabilidad_y_proveedores_consulta_de_gastos": "/administracion/contabilidad/consultaGastos.php",
         "admin.item.contabilidad_y_proveedores_control_de_gastos": "/administracion/contabilidad/controlGastos.php",
         "admin.item.contabilidad_y_proveedores_gestion_de_proveedores": "/administracion/dashboard/",
+        "admin.item.contabilidad_y_proveedores_autorizaciones_de_oc": "/compras/autorizacionesoc/index.php?usuario=%USER%",
         "admin.item.comercio_exterior_comex_carga_comercio_exterior": "/administracion/comercioExterior",
         "admin.item.comercio_exterior_comex_portal_comercio_exterior": "/administracion/comercioExterior/",
         "admin.item.comercio_exterior_comex_ordenes_comex": "/administracion/comercioExterior/mostrarOrden.php"
