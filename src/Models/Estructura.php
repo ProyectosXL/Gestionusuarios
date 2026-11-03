@@ -347,6 +347,90 @@ class Estructura {
         return true;
     }
 
+    /**
+     * Obtiene el mapa de URLs destino para las aplicaciones internas de un centralizador.
+     * Solo aplica para los módulos centralizadores (ADMIN, COMER, COMPR, DEI, DIREC, ECOMM, FINAN, LOGIS).
+     * Si el módulo no es un centralizador (ej: NODO, Cashflow, Informe Económico), retorna un array vacío.
+     */
+    public function obtenerMapaUrlsCentralizador($codigo) {
+        $codigo = strtoupper(trim((string)$codigo));
+        $folderMap = [
+            'ADMIN' => 'admin',
+            'COMER' => 'comer',
+            'COMPR' => 'compr',
+            'DEI'   => 'dei',
+            'DIREC' => 'direccion',
+            'ECOMM' => 'ecomm',
+            'FINAN' => 'finan',
+            'LOGIS' => 'logis',
+        ];
+
+        if (!isset($folderMap[$codigo])) {
+            return [];
+        }
+
+        $folder = $folderMap[$codigo];
+        $urlMap = [];
+
+        // 1. Cargar base desde archivo de configuración centralizado
+        $configFile = __DIR__ . '/../../config/urls_centralizadores.json';
+        if (file_exists($configFile)) {
+            $json = @json_decode(@file_get_contents($configFile), true);
+            if (!empty($json[$codigo]) && is_array($json[$codigo])) {
+                $urlMap = $json[$codigo];
+            }
+        }
+
+        // 2. Intentar lectura dinámica en tiempo real desde Menu.php del centralizador para detectar cambios o nuevos ítems
+        $candidates = [
+            dirname(__DIR__, 3) . '/centralizadores/' . $folder . '/Class/Menu.php',
+            (!empty($_SERVER['DOCUMENT_ROOT']) ? rtrim($_SERVER['DOCUMENT_ROOT'], '/\\') . '/centralizadores/' . $folder . '/Class/Menu.php' : ''),
+            'W:/centralizadores/' . $folder . '/Class/Menu.php',
+            'C:/xampp/htdocs/centralizadores/' . $folder . '/Class/Menu.php',
+            'D:/htdocs/centralizadores/' . $folder . '/Class/Menu.php',
+        ];
+
+        $menuPath = null;
+        foreach ($candidates as $c) {
+            if ($c && file_exists($c)) {
+                $menuPath = $c;
+                break;
+            }
+        }
+
+        if ($menuPath) {
+            $content = @file_get_contents($menuPath);
+            if ($content && preg_match('/public static function get\(\)\s*\{\s*return (array\s*\(.*?\));\s*\}/s', $content, $m)) {
+                $arr = @eval('return ' . $m[1] . ';');
+                if (is_array($arr)) {
+                    foreach ($arr as $sec) {
+                        if (empty($sec['items']) || !is_array($sec['items'])) continue;
+                        foreach ($sec['items'] as $it) {
+                            if (!empty($it['clave']) && !empty($it['url'])) {
+                                $urlMap[$it['clave']] = $it['url'];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Fallbacks especiales directos
+        if ($codigo === 'COMER') {
+            if (empty($urlMap['comer.item.precios_productos_y_auditoria_administrar_cuotas'])) {
+                $urlMap['comer.item.precios_productos_y_auditoria_administrar_cuotas'] = '/promociones/Cuotas/gestionar.php';
+            }
+            if (empty($urlMap['comer.item.precios_productos_y_auditoria_promo_bancos'])) {
+                $urlMap['comer.item.precios_productos_y_auditoria_promo_bancos'] = '/promociones/promoBancos/index.php';
+            }
+            if (empty($urlMap['comer.item.recepcion_y_personal_comercial_gestion_de_clientes'])) {
+                $urlMap['comer.item.recepcion_y_personal_comercial_gestion_de_clientes'] = '/recursosHumanos/clientes/index.php';
+            }
+        }
+
+        return $urlMap;
+    }
+
     public function obtenerSubmodulosCentralizador($moduloId, $rolId) {
         $moduloId = (int)$moduloId;
         $rolId = (int)$rolId;
@@ -356,6 +440,9 @@ class Estructura {
         $stmtMod = sqlsrv_query($this->db, "SELECT * FROM FP_MODULOS WHERE id = ?", [$moduloId]);
         $modulo = sqlsrv_fetch_array($stmtMod, SQLSRV_FETCH_ASSOC);
         if (!$modulo) return null;
+
+        $codigoMod = $modulo['codigo'] ?? '';
+        $urlMap = $this->obtenerMapaUrlsCentralizador($codigoMod);
 
         // Info del rol
         $rolNombre = '';
@@ -438,6 +525,7 @@ class Estructura {
 
                 $p['seccion'] = $secNombre;
                 $p['descripcion_limpia'] = $itemDesc;
+                $p['url'] = !empty($urlMap[$p['clave']]) ? $urlMap[$p['clave']] : null;
                 $activo = $tieneConfiguracionEspecifica ? isset($permisosRolIds[$p['id']]) : true;
 
                 if (($moduloId === 12 || $moduloId === 13) && isset($mapaHijos[$p['clave']])) {
@@ -642,6 +730,7 @@ class Estructura {
             ['tiempo.planificacion_editar', 'Editar Planificación Horaria', '[Gestión de Tiempo y Turnos] Crear, modificar y guardar asignaciones de turnos'],
             ['tiempo.distribucion_ver', 'Distribución de Horas y Curvas', '[Gestión de Tiempo y Turnos] Análisis de cobertura horaria y curvas de dotación'],
             ['tiempo.fichadas_ver', 'Control de Fichadas y Asistencia', '[Gestión de Tiempo y Turnos] Consulta de marcas de reloj y fichadas biométricas'],
+            ['tiempo.fichadas_editar', 'Modificar / Gestionar Fichadas', '[Gestión de Tiempo y Turnos] Permite a RRHH corregir marcas erróneas, registrar fichadas manuales faltantes (ingreso/egreso) y auditar cambios en el control diario'],
             ['tiempo.fichadas_sincronizar', 'Sincronizar Relojes Biométricos', '[Gestión de Tiempo y Turnos] Sincronización manual de registros ZKTeco'],
             ['homeoffice.fichar', 'Fichada Home Office con Foto', '[Gestión de Tiempo y Turnos] Registro seguro de ingreso y egreso remoto con verificación fotográfica'],
 
@@ -848,6 +937,10 @@ class Estructura {
 
     public function listarPermisosDeModulo($moduloId) {
         $moduloId = (int)$moduloId;
+        $stmtMod = sqlsrv_query($this->db, "SELECT codigo FROM FP_MODULOS WHERE id = ?", [$moduloId]);
+        $rMod = $stmtMod ? sqlsrv_fetch_array($stmtMod, SQLSRV_FETCH_ASSOC) : null;
+        $urlMap = $rMod ? $this->obtenerMapaUrlsCentralizador($rMod['codigo']) : [];
+
         $sql = "SELECT p.id, p.modulo_id, p.clave, p.nombre, p.descripcion,
                        (SELECT COUNT(*) FROM FP_ROL_PERMISO rp WHERE rp.permiso_id = p.id) as cant_roles_con_permiso
                 FROM FP_PERMISOS p
@@ -866,6 +959,7 @@ class Estructura {
                 }
                 $p['seccion'] = $secNombre;
                 $p['descripcion_limpia'] = $itemDesc;
+                $p['url'] = !empty($urlMap[$p['clave']]) ? $urlMap[$p['clave']] : null;
                 $p['es_raiz_hub'] = (strpos($p['clave'], 'hub.app.') === 0);
                 $res[] = $p;
             }

@@ -2375,7 +2375,7 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
             <div class="flex flex-wrap items-center justify-between gap-2.5 pb-3 border-b border-slate-100 mb-3 shrink-0">
                 <div class="relative w-full sm:w-80">
                     <i class="fas fa-search absolute left-3 top-2.5 text-slate-400 text-xs"></i>
-                    <input type="text" id="buscadorSubmodulos" oninput="filtrarSubmodulosEnModal(this.value)" placeholder="Buscar aplicación o menú..." 
+                    <input type="text" id="buscadorSubmodulos" oninput="filtrarSubmodulosEnModal(this.value)" placeholder="Buscar por aplicación, menú o URL..." 
                            class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
                 </div>
                 <div class="flex items-center gap-2">
@@ -4887,7 +4887,7 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                 `;
 
                 items.forEach(it => {
-                    const searchStr = (secNombre + ' ' + it.nombre + ' ' + (it.descripcion_limpia || '')).toLowerCase();
+                    const searchStr = (secNombre + ' ' + it.nombre + ' ' + (it.descripcion_limpia || '') + (it.url ? (' ' + it.url) : '')).toLowerCase();
                     const isVer = (it.nombre || '').startsWith('Ver:');
                     const isEdit = (it.nombre || '').startsWith('Editar:');
                     let tipoBadge = '';
@@ -4923,6 +4923,23 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                         `;
                     }
 
+                    let urlHtml = '';
+                    if (it.url) {
+                        urlHtml = `
+                            <div class="mt-2 pt-1.5 border-t border-slate-100 flex items-center justify-between gap-1.5 min-w-0" onclick="event.stopPropagation();">
+                                <span class="inline-flex items-center gap-1.5 text-[10.5px] font-mono text-slate-600 bg-slate-50 hover:bg-slate-100/90 border border-slate-200/80 px-2 py-0.5 rounded-md truncate min-w-0 transition" title="${it.url}">
+                                    <i class="fas fa-link text-[9.5px] text-indigo-500 shrink-0"></i>
+                                    <span class="truncate">${it.url}</span>
+                                </span>
+                                <a href="${it.url}" target="_blank" rel="noopener noreferrer" 
+                                   class="text-slate-400 hover:text-indigo-600 p-1 rounded-md hover:bg-slate-100 text-xs shrink-0 transition" 
+                                   title="Abrir aplicación en nueva pestaña">
+                                    <i class="fas fa-external-link-alt text-[9.5px]"></i>
+                                </a>
+                            </div>
+                        `;
+                    }
+
                     html += `
                         <label class="submod-item-card flex flex-col justify-between p-3.5 rounded-xl border bg-white cursor-pointer transition hover:border-indigo-300 ${it.activo ? 'border-indigo-200 bg-indigo-50/20 shadow-xs' : 'border-slate-200 text-slate-600'}" 
                                data-search="${searchStr}">
@@ -4940,6 +4957,7 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                                         ${tipoBadge}
                                     </div>
                                     <div class="text-[11px] text-slate-400 line-clamp-2 leading-snug">${it.descripcion_limpia || 'Acceso directo'}</div>
+                                    ${urlHtml}
                                 </div>
                             </div>
                             ${submodBotonHtml}
