@@ -126,6 +126,7 @@
         "dei.item.control_de_gestion_y_metricas_app_conteos_locales_propios": "/conteoLocal/login.php",
         "dei.item.control_de_gestion_y_metricas_app_conteos_franquicias": "/conteoFranquicia/login.php",
         "dei.item.control_de_gestion_y_metricas_administrador_contador_ingresos_locales": "/sistemas/contadorPersonas/",
+        "dei.item.control_de_gestion_y_metricas_control_de_remitos_conteos": "/sistemas/conteos/index.php",
         "dei.item.gestion_de_proyectos_administracion_de_proyectos": "/projects/adminProyectos/index.php",
         "dei.item.gestion_de_proyectos_cargar_proyecto": "/projects/adminProyectos/cargarProyecto.php"
     },
