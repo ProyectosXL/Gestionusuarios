@@ -179,6 +179,7 @@
         "ecomm.item.operaciones_y_despacho_online_tracking_e_commerce": "/ecommerce/seguimientoPedidos/",
         "ecomm.item.operaciones_y_despacho_online_cambios_y_devoluciones": "/ecommerce/cambios-devoluciones/",
         "ecomm.item.operaciones_y_despacho_online_pedidos_uruguay": "/Uruguay/ecommerce/consultaPedidos.php",
+        "ecomm.item.operaciones_y_despacho_online_gestion_sucursales_ecommerce": "/ecommerce/gestionSucursalesEcommerce/",
         "ecomm.item.auditoria_y_analisis_de_clientes_auditoria_cobros_prisma": "/ecommerce/auditoriaPrisma/auditoriaPrisma.php",
         "ecomm.item.auditoria_y_analisis_de_clientes_auditoria_e_commerce": "/ecommerce-auditoria/",
         "ecomm.item.auditoria_y_analisis_de_clientes_segmentacion_de_clientes": "/ecommerce/segmentacion/segmentacionDeClientes.php",
