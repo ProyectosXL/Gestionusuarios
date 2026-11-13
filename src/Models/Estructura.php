@@ -216,10 +216,14 @@ class Estructura {
     public function listarModulosHub() {
         $sql = "SELECT m.id, m.codigo, m.nombre, m.categoria, m.ruta_url, m.icono, m.color, m.descripcion, m.target_blank, m.orden, m.activo,
                        p.id as permiso_id, p.clave as permiso_clave,
-                       (SELECT COUNT(*) FROM FP_PERMISOS sp WHERE sp.modulo_id = m.id AND sp.clave NOT LIKE 'hub.app.%') as cant_submodulos
+                       (SELECT COUNT(*) FROM FP_PERMISOS sp WHERE sp.modulo_id = m.id AND sp.clave NOT LIKE 'hub.app.%' AND sp.clave NOT LIKE 'hub.acceso.%') as cant_submodulos
                 FROM FP_MODULOS m
                 LEFT JOIN FP_PERMISOS p ON p.modulo_id = m.id AND p.clave LIKE 'hub.app.%'
                 WHERE m.activo = 1
+                  AND NOT EXISTS (
+                      SELECT 1 FROM FP_PERMISOS pacc
+                      WHERE pacc.modulo_id = m.id AND pacc.clave LIKE 'hub.acceso.%'
+                  )
                 ORDER BY m.categoria ASC, m.orden ASC, m.nombre ASC";
         $stmt = sqlsrv_query($this->db, $sql);
         $modulos = [];
@@ -229,6 +233,24 @@ class Estructura {
             }
         }
         return $modulos;
+    }
+
+    public function listarAccesosRapidos() {
+        $sql = "SELECT m.id, m.codigo, m.nombre, m.categoria, m.ruta_url, m.icono, m.color, m.descripcion, m.target_blank, m.orden, m.activo,
+                       p.id as permiso_id, p.clave as permiso_clave,
+                       (SELECT COUNT(*) FROM FP_PERMISOS sp WHERE sp.modulo_id = m.id AND sp.clave NOT LIKE 'hub.app.%' AND sp.clave NOT LIKE 'hub.acceso.%') as cant_submodulos
+                FROM FP_MODULOS m
+                INNER JOIN FP_PERMISOS p ON p.modulo_id = m.id AND p.clave LIKE 'hub.acceso.%'
+                WHERE m.activo = 1
+                ORDER BY m.orden ASC, m.nombre ASC";
+        $stmt = sqlsrv_query($this->db, $sql);
+        $accesos = [];
+        if ($stmt) {
+            while ($r = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+                $accesos[] = $r;
+            }
+        }
+        return $accesos;
     }
 
     public function obtenerMatrizEstructuraCompleta() {
@@ -259,6 +281,7 @@ class Estructura {
                         if ($stmtRol) {
                             while ($rol = sqlsrv_fetch_array($stmtRol, SQLSRV_FETCH_ASSOC)) {
                                 $rol['permisos_hub'] = $this->obtenerPermisosHubRol($rol['id']);
+                                $rol['permisos_acceso_rapido'] = $this->obtenerPermisosAccesoRapidoRol($rol['id']);
                                 $roles[] = $rol;
                             }
                         }
@@ -279,6 +302,22 @@ class Estructura {
                 JOIN FP_PERMISOS p ON p.id = rp.permiso_id
                 JOIN FP_MODULOS m ON m.id = p.modulo_id
                 WHERE rp.rol_id = ? AND p.clave LIKE 'hub.app.%'";
+        $stmt = sqlsrv_query($this->db, $sql, [(int)$rolId]);
+        $res = [];
+        if ($stmt) {
+            while ($r = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+                $res[$r['clave']] = $r['id'];
+            }
+        }
+        return $res;
+    }
+
+    public function obtenerPermisosAccesoRapidoRol($rolId) {
+        $sql = "SELECT p.id, p.clave, m.codigo as modulo_codigo
+                FROM FP_ROL_PERMISO rp
+                JOIN FP_PERMISOS p ON p.id = rp.permiso_id
+                JOIN FP_MODULOS m ON m.id = p.modulo_id
+                WHERE rp.rol_id = ? AND p.clave LIKE 'hub.acceso.%'";
         $stmt = sqlsrv_query($this->db, $sql, [(int)$rolId]);
         $res = [];
         if ($stmt) {
@@ -330,7 +369,19 @@ class Estructura {
         if ($rolOrigenId <= 0 || $rolDestinoId <= 0) return false;
 
         $permisosOrigen = $this->obtenerPermisosHubRol($rolOrigenId);
-        return $this->guardarPermisosHubRol($rolDestinoId, array_values($permisosOrigen));
+        $this->guardarPermisosHubRol($rolDestinoId, array_values($permisosOrigen));
+
+        $accesosOrigen = $this->obtenerPermisosAccesoRapidoRol($rolOrigenId);
+        $sqlDelAcc = "DELETE FROM FP_ROL_PERMISO WHERE rol_id = ? AND permiso_id IN (SELECT id FROM FP_PERMISOS WHERE clave LIKE 'hub.acceso.%')";
+        sqlsrv_query($this->db, $sqlDelAcc, [$rolDestinoId]);
+        $sqlInsAcc = "INSERT INTO FP_ROL_PERMISO (rol_id, permiso_id) VALUES (?, ?)";
+        foreach (array_values($accesosOrigen) as $pId) {
+            $pId = (int)$pId;
+            if ($pId > 0) {
+                sqlsrv_query($this->db, $sqlInsAcc, [$rolDestinoId, $pId]);
+            }
+        }
+        return true;
     }
 
     public function aplicarPermisosHubSubsector($subsectorId, array $permisoIds) {
@@ -460,7 +511,7 @@ class Estructura {
         if ($rolId > 0) {
             $sqlPermRol = "SELECT rp.permiso_id FROM FP_ROL_PERMISO rp 
                            JOIN FP_PERMISOS p ON p.id = rp.permiso_id 
-                           WHERE rp.rol_id = ? AND p.modulo_id = ? AND p.clave NOT LIKE 'hub.app.%'";
+                           WHERE rp.rol_id = ? AND p.modulo_id = ? AND p.clave NOT LIKE 'hub.app.%' AND p.clave NOT LIKE 'hub.acceso.%'";
             $stmtPR = sqlsrv_query($this->db, $sqlPermRol, [$rolId, $moduloId]);
             if ($stmtPR) {
                 while ($rPR = sqlsrv_fetch_array($stmtPR, SQLSRV_FETCH_ASSOC)) {
@@ -470,15 +521,17 @@ class Estructura {
         }
 
         // Obtener todos los ítems/permisos de este centralizador
-        $sqlItems = "SELECT * FROM FP_PERMISOS WHERE modulo_id = ? AND clave NOT LIKE 'hub.app.%' ORDER BY id ASC";
+        $sqlItems = "SELECT * FROM FP_PERMISOS WHERE modulo_id = ? AND clave NOT LIKE 'hub.app.%' AND clave NOT LIKE 'hub.acceso.%' ORDER BY id ASC";
         $stmtItems = sqlsrv_query($this->db, $sqlItems, [$moduloId]);
         $secciones = [];
         $totalItems = 0;
         $totalActivos = 0;
 
         // Si el rol no tiene ningún permiso específico configurado para este módulo pero tiene acceso al Hub,
-        // por defecto consideramos activos todos los ítems (hasta que el admin personalice)
-        $tieneConfiguracionEspecifica = !empty($permisosRolIds);
+        // por defecto consideramos activos todos los ítems (hasta que el admin personalice),
+        // excepto en módulos de acceso rápido / opt-in (DocuGest, Direccionario, Internos, Intranet XL).
+        $esModuloAccesoOptIn = in_array(strtoupper(trim($codigoMod)), ['INTRANET', 'DOCUGEST', 'DIRECCIONARIO', 'INTERNOS', 'ANTICIPO_SUELDOS'], true);
+        $tieneConfiguracionEspecifica = $esModuloAccesoOptIn ? !$esRolAdmin : !empty($permisosRolIds);
 
         $mapaHijos = [
             'admin.item.dashboard_y_reportes_reportes_de_administracion' => [
@@ -611,9 +664,9 @@ class Estructura {
         if ($rolId <= 0 || $moduloId <= 0) return false;
 
         sqlsrv_begin_transaction($this->db);
-        // Borrar solo los permisos internos de este módulo para este rol (sin tocar hub.app.%)
+        // Borrar solo los permisos internos de este módulo para este rol (sin tocar hub.app.% ni hub.acceso.%)
         $sqlDel = "DELETE FROM FP_ROL_PERMISO 
-                   WHERE rol_id = ? AND permiso_id IN (SELECT id FROM FP_PERMISOS WHERE modulo_id = ? AND clave NOT LIKE 'hub.app.%')";
+                   WHERE rol_id = ? AND permiso_id IN (SELECT id FROM FP_PERMISOS WHERE modulo_id = ? AND clave NOT LIKE 'hub.app.%' AND clave NOT LIKE 'hub.acceso.%')";
         sqlsrv_query($this->db, $sqlDel, [$rolId, $moduloId]);
 
         $sqlIns = "INSERT INTO FP_ROL_PERMISO (rol_id, permiso_id) VALUES (?, ?)";
@@ -775,8 +828,9 @@ class Estructura {
     public function listarModulosTodos() {
         $sql = "SELECT m.id, m.codigo, m.nombre, m.categoria, m.ruta_url, m.icono, m.color, m.descripcion, m.target_blank, m.orden, m.activo,
                        (SELECT COUNT(*) FROM FP_PERMISOS sp WHERE sp.modulo_id = m.id) as cant_permisos_total,
-                       (SELECT COUNT(*) FROM FP_PERMISOS sp WHERE sp.modulo_id = m.id AND sp.clave NOT LIKE 'hub.app.%') as cant_submodulos,
-                       (SELECT COUNT(DISTINCT rp.rol_id) FROM FP_ROL_PERMISO rp JOIN FP_PERMISOS p ON p.id = rp.permiso_id WHERE p.modulo_id = m.id) as cant_roles_asignados
+                       (SELECT COUNT(*) FROM FP_PERMISOS sp WHERE sp.modulo_id = m.id AND sp.clave NOT LIKE 'hub.app.%' AND sp.clave NOT LIKE 'hub.acceso.%') as cant_submodulos,
+                       (SELECT COUNT(DISTINCT rp.rol_id) FROM FP_ROL_PERMISO rp JOIN FP_PERMISOS p ON p.id = rp.permiso_id WHERE p.modulo_id = m.id) as cant_roles_asignados,
+                       CASE WHEN EXISTS (SELECT 1 FROM FP_PERMISOS sp WHERE sp.modulo_id = m.id AND sp.clave LIKE 'hub.acceso.%') THEN 1 ELSE 0 END as es_acceso_rapido
                 FROM FP_MODULOS m
                 ORDER BY m.categoria ASC, m.orden ASC, m.nombre ASC";
         $stmt = sqlsrv_query($this->db, $sql);
@@ -891,20 +945,30 @@ class Estructura {
                 throw new Exception("Error al actualizar FP_MODULOS: " . print_r(sqlsrv_errors(), true));
             }
 
-            // Asegurar permiso del Hub
-            $claveHub = 'hub.app.' . strtolower($codigo);
-            $nombreHub = 'Acceso a ' . $nombre . ' en Hub';
-            $descHub = '[Hub] ' . ($descripcion ?: $nombre);
-
-            $stmtCheckHub = sqlsrv_query($this->db, "SELECT id FROM FP_PERMISOS WHERE modulo_id = ? AND clave LIKE 'hub.app.%'", [$id]);
-            if ($stmtCheckHub && ($rHub = sqlsrv_fetch_array($stmtCheckHub, SQLSRV_FETCH_ASSOC))) {
+            // Asegurar permiso raíz del Hub / Acceso Rápido sin contaminar módulos inactivos o accesos rápidos
+            $stmtCheckAcc = sqlsrv_query($this->db, "SELECT id FROM FP_PERMISOS WHERE modulo_id = ? AND clave LIKE 'hub.acceso.%'", [$id]);
+            if ($stmtCheckAcc && ($rAcc = sqlsrv_fetch_array($stmtCheckAcc, SQLSRV_FETCH_ASSOC))) {
+                $claveAcc = 'hub.acceso.' . strtolower($codigo);
+                $nombreAcc = 'Acceso a ' . $nombre . ' en Acceso Rápido';
+                $descAcc = '[Acceso Rápido] Permite visualizar y acceder a ' . $nombre . ' desde Accesos Directos del Hub';
                 sqlsrv_query($this->db, "UPDATE FP_PERMISOS SET clave = ?, nombre = ?, descripcion = ? WHERE id = ?", [
-                    $claveHub, $nombreHub, $descHub, $rHub['id']
+                    $claveAcc, $nombreAcc, $descAcc, $rAcc['id']
                 ]);
             } else {
-                sqlsrv_query($this->db, "INSERT INTO FP_PERMISOS (modulo_id, clave, nombre, descripcion) VALUES (?, ?, ?, ?)", [
-                    $id, $claveHub, $nombreHub, $descHub
-                ]);
+                $claveHub = 'hub.app.' . strtolower($codigo);
+                $nombreHub = 'Acceso a ' . $nombre . ' en Hub';
+                $descHub = '[Hub] ' . ($descripcion ?: $nombre);
+
+                $stmtCheckHub = sqlsrv_query($this->db, "SELECT id FROM FP_PERMISOS WHERE modulo_id = ? AND clave LIKE 'hub.app.%'", [$id]);
+                if ($stmtCheckHub && ($rHub = sqlsrv_fetch_array($stmtCheckHub, SQLSRV_FETCH_ASSOC))) {
+                    sqlsrv_query($this->db, "UPDATE FP_PERMISOS SET clave = ?, nombre = ?, descripcion = ? WHERE id = ?", [
+                        $claveHub, $nombreHub, $descHub, $rHub['id']
+                    ]);
+                } elseif ($activo) {
+                    sqlsrv_query($this->db, "INSERT INTO FP_PERMISOS (modulo_id, clave, nombre, descripcion) VALUES (?, ?, ?, ?)", [
+                        $id, $claveHub, $nombreHub, $descHub
+                    ]);
+                }
             }
 
             sqlsrv_commit($this->db);
@@ -945,7 +1009,7 @@ class Estructura {
                        (SELECT COUNT(*) FROM FP_ROL_PERMISO rp WHERE rp.permiso_id = p.id) as cant_roles_con_permiso
                 FROM FP_PERMISOS p
                 WHERE p.modulo_id = ?
-                ORDER BY CASE WHEN p.clave LIKE 'hub.app.%' THEN 0 ELSE 1 END, p.id ASC";
+                ORDER BY CASE WHEN p.clave LIKE 'hub.app.%' OR p.clave LIKE 'hub.acceso.%' THEN 0 ELSE 1 END, p.id ASC";
         $stmt = sqlsrv_query($this->db, $sql, [$moduloId]);
         $res = [];
         if ($stmt) {
@@ -960,7 +1024,8 @@ class Estructura {
                 $p['seccion'] = $secNombre;
                 $p['descripcion_limpia'] = $itemDesc;
                 $p['url'] = !empty($urlMap[$p['clave']]) ? $urlMap[$p['clave']] : null;
-                $p['es_raiz_hub'] = (strpos($p['clave'], 'hub.app.') === 0);
+                $p['es_acceso_rapido'] = (strpos($p['clave'], 'hub.acceso.') === 0);
+                $p['es_raiz_hub'] = (strpos($p['clave'], 'hub.app.') === 0) || $p['es_acceso_rapido'];
                 $res[] = $p;
             }
         }

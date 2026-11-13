@@ -816,6 +816,7 @@ $subsectores = $estructuraModel->listarSubsectores();
 $roles = $estructuraModel->listarRoles();
 $modulos = $estructuraModel->listarModulosConPermisos();
 $modulosHub = $estructuraModel->listarModulosHub();
+$accesosRapidosHub = $estructuraModel->listarAccesosRapidos();
 $modulosTodos = $estructuraModel->listarModulosTodos();
 $categoriasHubExistentes = array_values(array_unique(array_filter(array_map(function($m){ return trim($m['categoria'] ?? ''); }, $modulosTodos))));
 sort($categoriasHubExistentes);
@@ -1891,6 +1892,9 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                                                             $permisosAsignados = $rol['permisos_hub'] ?? [];
                                                             $cantActivas = count($permisosAsignados);
                                                             $totalApps = count($modulosHub);
+                                                            $accesosAsignados = $rol['permisos_acceso_rapido'] ?? [];
+                                                            $cantAccesosActivos = count($accesosAsignados);
+                                                            $totalAccesosRapidos = count($accesosRapidosHub);
                                                             $searchTerms = strtolower($s['nombre'] . ' ' . $sub['nombre'] . ' ' . $rol['nombre'] . ' ' . $rol['codigo']);
                                                         ?>
                                                         <div class="rol-hub-card bg-white border border-slate-200 rounded-xl p-4 shadow-2xs hover:border-indigo-200 transition" 
@@ -1914,7 +1918,13 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                                                                     </div>
                                                                 </div>
 
-                                                                <div class="flex items-center gap-2 shrink-0">
+                                                                <div class="flex items-center gap-2 shrink-0 flex-wrap">
+                                                                    <?php if($totalAccesosRapidos > 0): ?>
+                                                                    <!-- Badge Contador de Accesos Rápidos -->
+                                                                    <span id="badgeRolAccesos_<?= $rol['id'] ?>" class="px-2.5 py-1 rounded-lg text-xs font-bold <?= $cantAccesosActivos > 0 ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-slate-100 text-slate-500 border border-slate-200' ?>">
+                                                                        <i class="fas fa-bolt text-[10px] mr-1"></i><span class="count-val"><?= $cantAccesosActivos ?></span> / <?= $totalAccesosRapidos ?> accesos rápidos
+                                                                    </span>
+                                                                    <?php endif; ?>
                                                                     <!-- Badge Contador de Apps -->
                                                                     <span id="badgeRolApps_<?= $rol['id'] ?>" class="px-2.5 py-1 rounded-lg text-xs font-bold <?= $cantActivas > 0 ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' : 'bg-slate-100 text-slate-500 border border-slate-200' ?>">
                                                                         <span class="count-val"><?= $cantActivas ?></span> / <?= $totalApps ?> apps activas
@@ -1974,6 +1984,63 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                                                                     </div>
                                                                 <?php endforeach; ?>
                                                             </div>
+
+                                                            <?php if(!empty($accesosRapidosHub)): ?>
+                                                                <!-- Sección Accesos Rápidos (Sidebar del Hub) -->
+                                                                <div class="mt-4 pt-3.5 border-t border-dashed border-slate-200">
+                                                                    <div class="flex items-center gap-1.5 mb-2.5">
+                                                                        <i class="fas fa-bolt text-amber-500 text-xs"></i>
+                                                                        <span class="text-[11px] font-bold text-slate-700 uppercase tracking-wide">Accesos Rápidos (Sidebar del Hub)</span>
+                                                                    </div>
+                                                                    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2.5">
+                                                                        <?php foreach($accesosRapidosHub as $acc): ?>
+                                                                            <?php
+                                                                                $aClave = $acc['permiso_clave'];
+                                                                                $aId = (int)$acc['permiso_id'];
+                                                                                $accActivo = isset($accesosAsignados[$aClave]) || !empty($rol['es_admin']);
+                                                                                $accTieneSubmodulos = !empty($acc['cant_submodulos']) && (int)$acc['cant_submodulos'] > 0;
+                                                                            ?>
+                                                                            <div class="app-hub-item flex items-center justify-between p-2.5 rounded-xl border transition <?= $accActivo ? 'bg-indigo-50/40 border-indigo-200' : 'bg-slate-50/60 border-slate-200/80 hover:border-slate-300' ?>" id="itemApp_<?= $rol['id'] ?>_<?= $aId ?>">
+                                                                                <div class="flex items-center gap-2.5 min-w-0 pr-2">
+                                                                                    <div class="w-8 h-8 rounded-lg flex items-center justify-center text-white shrink-0 text-xs shadow-2xs"
+                                                                                         style="background: <?= htmlspecialchars($acc['color'] ?: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)') ?>;">
+                                                                                        <i class="fa-solid <?= htmlspecialchars($acc['icono'] ?: 'fa-cube') ?>"></i>
+                                                                                    </div>
+                                                                                    <div class="min-w-0">
+                                                                                        <div class="text-xs font-bold text-slate-800 truncate" title="<?= htmlspecialchars($acc['nombre']) ?>">
+                                                                                            <?= htmlspecialchars($acc['nombre']) ?>
+                                                                                        </div>
+                                                                                        <?php if($accTieneSubmodulos): ?>
+                                                                                            <button type="button"
+                                                                                                    onclick="abrirModalSubmodulos(<?= $rol['id'] ?>, <?= $acc['id'] ?>, '<?= htmlspecialchars(addslashes($rol['nombre'])) ?>', '<?= htmlspecialchars(addslashes($acc['nombre'])) ?>')"
+                                                                                                    class="inline-flex items-center gap-1 text-[10px] text-indigo-600 hover:text-indigo-800 font-semibold hover:underline mt-0.5"
+                                                                                                    title="Configurar permisos internos">
+                                                                                                <i class="fas fa-sliders text-[9px]"></i> Configurar permisos (<?= $acc['cant_submodulos'] ?>)
+                                                                                            </button>
+                                                                                        <?php else: ?>
+                                                                                            <div class="text-[10px] text-slate-400 font-mono truncate" title="<?= htmlspecialchars($acc['ruta_url']) ?>">
+                                                                                                <?= htmlspecialchars($acc['ruta_url']) ?>
+                                                                                            </div>
+                                                                                        <?php endif; ?>
+                                                                                    </div>
+                                                                                </div>
+
+                                                                                <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                                                                                    <input type="checkbox"
+                                                                                           class="sr-only peer switch-acceso-rapido"
+                                                                                           data-rol-id="<?= $rol['id'] ?>"
+                                                                                           data-modulo-id="<?= $acc['id'] ?>"
+                                                                                           data-permiso-id="<?= $aId ?>"
+                                                                                           data-permiso-clave="<?= htmlspecialchars($aClave) ?>"
+                                                                                           <?= $accActivo ? 'checked' : '' ?>
+                                                                                           onchange="toggleHubPermiso(this, <?= $rol['id'] ?>, <?= $aId ?>)">
+                                                                                    <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                                                                                </label>
+                                                                            </div>
+                                                                        <?php endforeach; ?>
+                                                                    </div>
+                                                                </div>
+                                                            <?php endif; ?>
 
                                                         </div>
                                                     <?php endforeach; ?>
@@ -2109,6 +2176,12 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                                                 <?php else: ?>
                                                     <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">
                                                         Inactivo
+                                                    </span>
+                                                <?php endif; ?>
+
+                                                <?php if(!empty($m['es_acceso_rapido'])): ?>
+                                                    <span class="text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200 font-semibold" title="Se muestra en Accesos Directos del Hub">
+                                                        <i class="fas fa-bolt"></i> Acceso Rápido
                                                     </span>
                                                 <?php endif; ?>
 
@@ -4520,6 +4593,20 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                     badge.className = 'px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 text-slate-500 border border-slate-200';
                 }
             }
+
+            const switchesAcc = rolCard.querySelectorAll('.switch-acceso-rapido');
+            let accActivos = 0;
+            switchesAcc.forEach(s => { if (s.checked) accActivos++; });
+            const badgeAcc = document.getElementById(`badgeRolAccesos_${rolId}`);
+            if (badgeAcc) {
+                const countAcc = badgeAcc.querySelector('.count-val');
+                if (countAcc) countAcc.textContent = accActivos;
+                if (accActivos > 0) {
+                    badgeAcc.className = 'px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200';
+                } else {
+                    badgeAcc.className = 'px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 text-slate-500 border border-slate-200';
+                }
+            }
         }
 
         function marcarTodasAppsRol(rolId, activar) {
@@ -5469,7 +5556,7 @@ $usuariosParaEquipos = ($tab === 'equipos') ? $estructuraModel->buscarUsuariosPa
                                 </span>
                                 <span class="text-xs font-bold text-slate-900">${p.nombre}</span>
                                 <span class="text-[10px] font-mono text-indigo-700 bg-indigo-50 border border-indigo-100 px-1.5 py-0.2 rounded font-semibold">${p.clave}</span>
-                                ${esRaiz ? '<span class="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.2 rounded">Acceso Principal Hub</span>' : ''}
+                                ${esRaiz ? `<span class="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.2 rounded">${p.es_acceso_rapido ? 'Acceso Rápido Hub' : 'Acceso Principal Hub'}</span>` : ''}
                             </div>
                             ${p.descripcion_limpia ? `<p class="text-[11px] text-slate-500 mt-0.5 line-clamp-1">${p.descripcion_limpia}</p>` : ''}
                         </div>
